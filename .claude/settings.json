@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcrun simctl *)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(osascript)"
+    ]
+  }
+}
