@@ -5,6 +5,8 @@
 -- Cleanup: explicit deletion at end; exception path rolls back everything
 -- =============================================================================
 
+BEGIN;
+
 DO $$
 DECLARE
   -- ── Counters ──────────────────────────────────────────────
@@ -574,27 +576,44 @@ BEGIN
     RAISE WARNING 'FAIL 4.3: %', sqlerrm;
   END;
 
-  -- 4.4  Total contribution does not exceed score_ceiling ───────────────────
+  -- 4.4  Signed v2.2 contribution does not exceed agreement ceiling ────────
   v_total := v_total + 1;
   BEGIN
     DECLARE
-      v_ceiling   integer;
-      v_sum_pts   integer;
+      v_ceiling integer;
+      v_net_pts integer;
     BEGIN
-      SELECT score_ceiling INTO v_ceiling
-      FROM   public.score_agreements WHERE id = v_sagr1_id;
+      v_ceiling := public.score_v22_agreement_ceiling(v_sagr1_id);
 
-      SELECT coalesce(sum(points_awarded), 0) INTO v_sum_pts
-      FROM   public.score_v2_contributions
-      WHERE  score_agreement_id = v_sagr1_id;
+      SELECT coalesce(sum(
+        CASE
+          WHEN impact_direction = 'penalty' THEN -points_awarded
+          ELSE points_awarded
+        END
+      ), 0)::integer
+      INTO v_net_pts
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr1_id
+        AND model_version = 'v2.2-shadow';
 
-      IF v_sum_pts <= v_ceiling THEN
+      IF v_net_pts <= v_ceiling THEN
         v_pass := v_pass + 1;
-        RAISE NOTICE 'PASS 4.4: total contribution (%) does not exceed ceiling (%)', v_sum_pts, v_ceiling;
+        RAISE NOTICE
+          'PASS 4.4: signed v2.2 contribution (%) does not exceed ceiling (%)',
+          v_net_pts,
+          v_ceiling;
       ELSE
         v_fail := v_fail + 1;
-        v_fail_msgs := v_fail_msgs || ' | 4.4 contribution=' || v_sum_pts || ' > ceiling=' || v_ceiling;
-        RAISE WARNING 'FAIL 4.4: contribution=% exceeds ceiling=%', v_sum_pts, v_ceiling;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 4.4 signed contribution='
+          || v_net_pts
+          || ' > ceiling='
+          || v_ceiling;
+        RAISE WARNING
+          'FAIL 4.4: signed contribution=% exceeds ceiling=%',
+          v_net_pts,
+          v_ceiling;
       END IF;
     END;
   EXCEPTION WHEN OTHERS THEN
@@ -603,34 +622,47 @@ BEGIN
     RAISE WARNING 'FAIL 4.4: %', sqlerrm;
   END;
 
-  -- 4.5  Rerunning recalculation creates no duplicate contribution ───────────
+  -- 4.5  Repeated v2.2 recalculation creates no duplicate contribution ─────
   v_total := v_total + 1;
   BEGIN
     DECLARE
       v_before integer;
       v_after  integer;
-      v_shadow_ver text;
     BEGIN
+      -- Catch up any immutable outcome that preceded its dependent event.
+      PERFORM public.score_v22_recalculate_agreement(v_sagr1_id, now());
+
       SELECT count(*) INTO v_before
-      FROM   public.score_v2_contributions WHERE score_agreement_id = v_sagr1_id;
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr1_id
+        AND model_version = 'v2.2-shadow';
 
-      SELECT version INTO v_shadow_ver
-      FROM   public.trust_model_versions
-      WHERE  model_key = 'iou_score' AND status = 'shadow'
-      ORDER  BY activated_at DESC LIMIT 1;
-
-      PERFORM public.recalculate_score_v2_agreement(v_sagr1_id, v_shadow_ver);
+      PERFORM public.score_v22_recalculate_agreement(v_sagr1_id, now());
+      PERFORM public.score_v22_recalculate_agreement(v_sagr1_id, now());
 
       SELECT count(*) INTO v_after
-      FROM   public.score_v2_contributions WHERE score_agreement_id = v_sagr1_id;
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr1_id
+        AND model_version = 'v2.2-shadow';
 
       IF v_after = v_before THEN
         v_pass := v_pass + 1;
-        RAISE NOTICE 'PASS 4.5: recalculation is idempotent (contributions before=%, after=%)', v_before, v_after;
+        RAISE NOTICE
+          'PASS 4.5: v2.2 recalculation is idempotent (before=%, after=%)',
+          v_before,
+          v_after;
       ELSE
         v_fail := v_fail + 1;
-        v_fail_msgs := v_fail_msgs || ' | 4.5 idempotency failed: before=' || v_before || ' after=' || v_after;
-        RAISE WARNING 'FAIL 4.5: contribution count changed on rerun (before=%, after=%)', v_before, v_after;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 4.5 v2.2 idempotency failed: before='
+          || v_before
+          || ' after='
+          || v_after;
+        RAISE WARNING
+          'FAIL 4.5: v2.2 contribution count changed (before=%, after=%)',
+          v_before,
+          v_after;
       END IF;
     END;
   EXCEPTION WHEN OTHERS THEN
@@ -645,28 +677,56 @@ BEGIN
   -- ===========================================================================
   RAISE NOTICE '--- Group 5: Agreement completion ---';
 
-  -- 5.1  First payment fills payment_performance; no agreement_completed yet ─
+  -- 5.1  Early first payment remains pending; no positive row unlocks ─────
   v_total := v_total + 1;
   BEGIN
     DECLARE
-      v_pp_count   integer;
-      v_comp_count integer;
+      v_positive_count integer;
+      v_comp_count     integer;
+      v_progress       jsonb;
     BEGIN
-      SELECT count(*) INTO v_pp_count
-      FROM   public.score_v2_contributions
-      WHERE  score_agreement_id = v_sagr2_id AND contribution_type = 'payment_performance';
+      SELECT count(*) INTO v_positive_count
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr2_id
+        AND model_version = 'v2.2-shadow'
+        AND contribution_type IN (
+          'agreement_completion',
+          'early_payment_bonus'
+        );
 
       SELECT count(*) INTO v_comp_count
-      FROM   public.trust_outcome_events
-      WHERE  score_agreement_id = v_sagr2_id AND outcome_type = 'agreement_completed';
+      FROM public.trust_outcome_events
+      WHERE score_agreement_id = v_sagr2_id
+        AND outcome_type = 'agreement_completed';
 
-      IF v_pp_count = 1 AND v_comp_count = 0 THEN
+      v_progress := public.score_v22_pending_agreement_progress(
+        v_sagr2_id,
+        now()
+      );
+
+      IF v_positive_count = 0
+         AND v_comp_count = 0
+         AND NOT (v_progress ->> 'positive_points_unlocked')::boolean
+         AND (v_progress ->> 'paid_installment_count')::integer = 1
+      THEN
         v_pass := v_pass + 1;
-        RAISE NOTICE 'PASS 5.1: first payment fills PP; no agreement_completed yet';
+        RAISE NOTICE
+          'PASS 5.1: early first payment remains pending; no positive contribution unlocked';
       ELSE
         v_fail := v_fail + 1;
-        v_fail_msgs := v_fail_msgs || ' | 5.1 pp_count=' || v_pp_count || ' comp_count=' || v_comp_count;
-        RAISE WARNING 'FAIL 5.1: pp_count=%, agreement_completed=%', v_pp_count, v_comp_count;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 5.1 positive_count='
+          || v_positive_count
+          || ' comp_count='
+          || v_comp_count
+          || ' progress='
+          || v_progress::text;
+        RAISE WARNING
+          'FAIL 5.1: positive_count=%, agreement_completed=%, progress=%',
+          v_positive_count,
+          v_comp_count,
+          v_progress;
       END IF;
     END;
   EXCEPTION WHEN OTHERS THEN
@@ -703,46 +763,102 @@ BEGIN
     RAISE WARNING 'FAIL 5.2: %', sqlerrm;
   END;
 
-  -- 5.3  Second payment does NOT add another payment_performance contribution
+  -- 5.3  Completion creates one base reward and one capped early bonus ─────
   v_total := v_total + 1;
   BEGIN
-    SELECT count(*) INTO v_count
-    FROM   public.score_v2_contributions
-    WHERE  score_agreement_id = v_sagr2_id AND contribution_type = 'payment_performance';
-    IF v_count = 1 THEN
-      v_pass := v_pass + 1; RAISE NOTICE 'PASS 5.3: second payment does not refill payment_performance slot';
-    ELSE
-      v_fail := v_fail + 1;
-      v_fail_msgs := v_fail_msgs || ' | 5.3 pp_contribution_count=' || v_count;
-      RAISE WARNING 'FAIL 5.3: payment_performance count=%', v_count;
-    END IF;
+    DECLARE
+      v_completion_count integer;
+      v_early_count      integer;
+      v_pp_count         integer;
+    BEGIN
+      PERFORM public.score_v22_recalculate_agreement(v_sagr2_id, now());
+
+      SELECT
+        count(*) FILTER (
+          WHERE contribution_type = 'agreement_completion'
+        )::integer,
+        count(*) FILTER (
+          WHERE contribution_type = 'early_payment_bonus'
+        )::integer,
+        count(*) FILTER (
+          WHERE contribution_type = 'payment_performance'
+        )::integer
+      INTO
+        v_completion_count,
+        v_early_count,
+        v_pp_count
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr2_id
+        AND model_version = 'v2.2-shadow';
+
+      IF v_completion_count = 1
+         AND v_early_count = 1
+         AND v_pp_count = 0
+      THEN
+        v_pass := v_pass + 1;
+        RAISE NOTICE
+          'PASS 5.3: completion creates one base reward and one capped early bonus';
+      ELSE
+        v_fail := v_fail + 1;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 5.3 completion='
+          || v_completion_count
+          || ' early='
+          || v_early_count
+          || ' payment_performance='
+          || v_pp_count;
+        RAISE WARNING
+          'FAIL 5.3: completion=%, early=%, payment_performance=%',
+          v_completion_count,
+          v_early_count,
+          v_pp_count;
+      END IF;
+    END;
   EXCEPTION WHEN OTHERS THEN
     v_fail := v_fail + 1;
     v_fail_msgs := v_fail_msgs || ' | 5.3 exception: ' || sqlerrm;
     RAISE WARNING 'FAIL 5.3: %', sqlerrm;
   END;
 
-  -- 5.4  Total contribution of IOU 2 never exceeds ceiling ──────────────────
+  -- 5.4  Signed v2.2 contribution of IOU 2 never exceeds ceiling ──────────
   v_total := v_total + 1;
   BEGIN
     DECLARE
-      v_ceiling  integer;
-      v_sum_pts  integer;
+      v_ceiling integer;
+      v_net_pts integer;
     BEGIN
-      SELECT score_ceiling INTO v_ceiling
-      FROM   public.score_agreements WHERE id = v_sagr2_id;
+      v_ceiling := public.score_v22_agreement_ceiling(v_sagr2_id);
 
-      SELECT coalesce(sum(points_awarded), 0) INTO v_sum_pts
-      FROM   public.score_v2_contributions
-      WHERE  score_agreement_id = v_sagr2_id;
+      SELECT coalesce(sum(
+        CASE
+          WHEN impact_direction = 'penalty' THEN -points_awarded
+          ELSE points_awarded
+        END
+      ), 0)::integer
+      INTO v_net_pts
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr2_id
+        AND model_version = 'v2.2-shadow';
 
-      IF v_sum_pts <= v_ceiling THEN
+      IF v_net_pts <= v_ceiling THEN
         v_pass := v_pass + 1;
-        RAISE NOTICE 'PASS 5.4: total contribution (%) <= ceiling (%) for two-payment IOU', v_sum_pts, v_ceiling;
+        RAISE NOTICE
+          'PASS 5.4: signed v2.2 contribution (%) <= ceiling (%)',
+          v_net_pts,
+          v_ceiling;
       ELSE
         v_fail := v_fail + 1;
-        v_fail_msgs := v_fail_msgs || ' | 5.4 sum=' || v_sum_pts || ' > ceiling=' || v_ceiling;
-        RAISE WARNING 'FAIL 5.4: sum=% exceeds ceiling=%', v_sum_pts, v_ceiling;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 5.4 signed sum='
+          || v_net_pts
+          || ' > ceiling='
+          || v_ceiling;
+        RAISE WARNING
+          'FAIL 5.4: signed sum=% exceeds ceiling=%',
+          v_net_pts,
+          v_ceiling;
       END IF;
     END;
   EXCEPTION WHEN OTHERS THEN
@@ -751,34 +867,68 @@ BEGIN
     RAISE WARNING 'FAIL 5.4: %', sqlerrm;
   END;
 
-  -- 5.5  Rerunning recalculation on IOU 2 produces no new contributions ─────
+  -- 5.5  Repeated completion recalculation remains idempotent ──────────────
   v_total := v_total + 1;
   BEGIN
     DECLARE
-      v_before     integer;
-      v_after      integer;
-      v_shadow_ver text;
+      v_before           integer;
+      v_after            integer;
+      v_completion_count integer;
+      v_early_count      integer;
     BEGIN
+      PERFORM public.score_v22_recalculate_agreement(v_sagr2_id, now());
+
       SELECT count(*) INTO v_before
-      FROM   public.score_v2_contributions WHERE score_agreement_id = v_sagr2_id;
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr2_id
+        AND model_version = 'v2.2-shadow';
 
-      SELECT version INTO v_shadow_ver
-      FROM   public.trust_model_versions
-      WHERE  model_key = 'iou_score' AND status = 'shadow'
-      ORDER  BY activated_at DESC LIMIT 1;
+      PERFORM public.score_v22_recalculate_agreement(v_sagr2_id, now());
+      PERFORM public.score_v22_recalculate_agreement(v_sagr2_id, now());
 
-      PERFORM public.recalculate_score_v2_agreement(v_sagr2_id, v_shadow_ver);
+      SELECT
+        count(*)::integer,
+        count(*) FILTER (
+          WHERE contribution_type = 'agreement_completion'
+        )::integer,
+        count(*) FILTER (
+          WHERE contribution_type = 'early_payment_bonus'
+        )::integer
+      INTO
+        v_after,
+        v_completion_count,
+        v_early_count
+      FROM public.score_v2_contributions
+      WHERE score_agreement_id = v_sagr2_id
+        AND model_version = 'v2.2-shadow';
 
-      SELECT count(*) INTO v_after
-      FROM   public.score_v2_contributions WHERE score_agreement_id = v_sagr2_id;
-
-      IF v_after = v_before THEN
+      IF v_after = v_before
+         AND v_completion_count = 1
+         AND v_early_count = 1
+      THEN
         v_pass := v_pass + 1;
-        RAISE NOTICE 'PASS 5.5: completion recalculation idempotent (before=%, after=%)', v_before, v_after;
+        RAISE NOTICE
+          'PASS 5.5: v2.2 completion recalculation idempotent (before=%, after=%)',
+          v_before,
+          v_after;
       ELSE
         v_fail := v_fail + 1;
-        v_fail_msgs := v_fail_msgs || ' | 5.5 before=' || v_before || ' after=' || v_after;
-        RAISE WARNING 'FAIL 5.5: contribution count changed (before=%, after=%)', v_before, v_after;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 5.5 before='
+          || v_before
+          || ' after='
+          || v_after
+          || ' completion='
+          || v_completion_count
+          || ' early='
+          || v_early_count;
+        RAISE WARNING
+          'FAIL 5.5: before=%, after=%, completion=%, early=%',
+          v_before,
+          v_after,
+          v_completion_count,
+          v_early_count;
       END IF;
     END;
   EXCEPTION WHEN OTHERS THEN
@@ -894,65 +1044,79 @@ BEGIN
       END IF;
     END;
 
-    -- Cleanup iou3
-    DELETE FROM public.payment_receipts   WHERE payment_id IN (v_pay3a_id, v_pay3b_id);
-    DELETE FROM public.receipts            WHERE iou_id = v_iou3_id;
-    DELETE FROM public.agreement_events    WHERE score_agreement_id IN (
-      SELECT id FROM public.score_agreements WHERE source_id = v_iou3_id
-    );
-    ALTER TABLE public.score_v2_contributions DISABLE TRIGGER trg_score_v2_contributions_immutable;
-    DELETE FROM public.score_v2_contributions WHERE score_agreement_id IN (
-      SELECT id FROM public.score_agreements WHERE source_id = v_iou3_id
-    );
-    ALTER TABLE public.score_v2_contributions ENABLE TRIGGER trg_score_v2_contributions_immutable;
-    DELETE FROM public.trust_outcome_events WHERE score_agreement_id IN (
-      SELECT id FROM public.score_agreements WHERE source_id = v_iou3_id
-    );
-    DELETE FROM public.score_agreements    WHERE source_id = v_iou3_id;
-    DELETE FROM public.payments            WHERE iou_id = v_iou3_id;
-    DELETE FROM public.ious                WHERE id = v_iou3_id;
+    -- Cleanup deferred to the outer transaction rollback.
   EXCEPTION WHEN OTHERS THEN
     v_fail := v_fail + 1;
     v_fail_msgs := v_fail_msgs || ' | 6.3 exception: ' || sqlerrm;
     RAISE WARNING 'FAIL 6.3: %', sqlerrm;
-    -- attempt cleanup even on failure
-    DELETE FROM public.payment_receipts   WHERE payment_id IN (v_pay3a_id, v_pay3b_id);
-    DELETE FROM public.receipts            WHERE iou_id = v_iou3_id;
-    DELETE FROM public.agreement_events    WHERE score_agreement_id IN (
-      SELECT id FROM public.score_agreements WHERE source_id = v_iou3_id
-    );
-    ALTER TABLE public.score_v2_contributions DISABLE TRIGGER trg_score_v2_contributions_immutable;
-    DELETE FROM public.score_v2_contributions WHERE score_agreement_id IN (
-      SELECT id FROM public.score_agreements WHERE source_id = v_iou3_id
-    );
-    ALTER TABLE public.score_v2_contributions ENABLE TRIGGER trg_score_v2_contributions_immutable;
-    DELETE FROM public.trust_outcome_events WHERE score_agreement_id IN (
-      SELECT id FROM public.score_agreements WHERE source_id = v_iou3_id
-    );
-    DELETE FROM public.score_agreements    WHERE source_id = v_iou3_id;
-    DELETE FROM public.payments            WHERE iou_id = v_iou3_id;
-    DELETE FROM public.ious                WHERE id = v_iou3_id;
+    -- Cleanup deferred to the outer transaction rollback.
   END;
 
-  -- 6.4  Duplicate recomputation does not cause negative or drifting exposure
+  -- 6.4  Repeated recomputation matches deterministic fixture exposure ─────
   v_total := v_total + 1;
   BEGIN
-    -- Both IOUs are fully paid. Run recompute multiple times and verify stable 0.
-    PERFORM public.recompute_iou_exposure(v_iou1_id);
-    PERFORM public.recompute_iou_exposure(v_iou1_id);
-    PERFORM public.recalculate_profile_exposure(v_borrower_id);
-    PERFORM public.recalculate_profile_exposure(v_borrower_id);
+    DECLARE
+      v_profile_exposure  integer;
+      v_expected_exposure integer;
+      v_iou1_exposure     integer;
+      v_iou2_exposure     integer;
+    BEGIN
+      -- IOU 1 and IOU 2 are fully paid. IOU 3 remains partially open until the
+      -- outer transaction rollback, so its remaining exposure is legitimate.
+      PERFORM public.recompute_iou_exposure(v_iou1_id);
+      PERFORM public.recompute_iou_exposure(v_iou1_id);
+      PERFORM public.recompute_iou_exposure(v_iou2_id);
+      PERFORM public.recompute_iou_exposure(v_iou2_id);
+      PERFORM public.recalculate_profile_exposure(v_borrower_id);
+      PERFORM public.recalculate_profile_exposure(v_borrower_id);
 
-    SELECT active_exposure_points INTO v_int
-    FROM   public.profiles WHERE id = v_borrower_id;
+      SELECT exposure_points INTO v_iou1_exposure
+      FROM public.ious
+      WHERE id = v_iou1_id;
 
-    IF v_int = 0 THEN
-      v_pass := v_pass + 1; RAISE NOTICE 'PASS 6.4: repeated recomputation stays stable at 0';
-    ELSE
-      v_fail := v_fail + 1;
-      v_fail_msgs := v_fail_msgs || ' | 6.4 exposure drifted to ' || v_int;
-      RAISE WARNING 'FAIL 6.4: exposure drifted to % after repeated recompute', v_int;
-    END IF;
+      SELECT exposure_points INTO v_iou2_exposure
+      FROM public.ious
+      WHERE id = v_iou2_id;
+
+      SELECT coalesce(sum(coalesce(exposure_points, 0)), 0)::integer
+      INTO v_expected_exposure
+      FROM public.ious
+      WHERE borrower_id = v_borrower_id;
+
+      SELECT active_exposure_points INTO v_profile_exposure
+      FROM public.profiles
+      WHERE id = v_borrower_id;
+
+      IF v_iou1_exposure = 0
+         AND v_iou2_exposure = 0
+         AND v_profile_exposure = v_expected_exposure
+         AND v_profile_exposure >= 0
+      THEN
+        v_pass := v_pass + 1;
+        RAISE NOTICE
+          'PASS 6.4: repeated exposure recomputation is stable (profile=%, expected=%)',
+          v_profile_exposure,
+          v_expected_exposure;
+      ELSE
+        v_fail := v_fail + 1;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 6.4 profile='
+          || v_profile_exposure
+          || ' expected='
+          || v_expected_exposure
+          || ' iou1='
+          || v_iou1_exposure
+          || ' iou2='
+          || v_iou2_exposure;
+        RAISE WARNING
+          'FAIL 6.4: profile=%, expected=%, iou1=%, iou2=%',
+          v_profile_exposure,
+          v_expected_exposure,
+          v_iou1_exposure,
+          v_iou2_exposure;
+      END IF;
+    END;
   EXCEPTION WHEN OTHERS THEN
     v_fail := v_fail + 1;
     v_fail_msgs := v_fail_msgs || ' | 6.4 exception: ' || sqlerrm;
@@ -1062,34 +1226,64 @@ BEGIN
     RAISE WARNING 'FAIL 7.3: %', sqlerrm;
   END;
 
-  -- 7.4  v2_shadow_score and public_score are stored in separate columns ─────
+  -- 7.4  Shadow snapshot uses signed active contributions ─────────────────
   v_total := v_total + 1;
   BEGIN
-    SELECT * INTO v_snap FROM public.trust_score_snapshots WHERE id = v_snap_id;
-    -- The columns must be distinct database columns; v2 must be >= v1 (contributions added)
-    -- and v2 score should reflect contribution total.
+    SELECT * INTO v_snap
+    FROM public.trust_score_snapshots
+    WHERE id = v_snap_id;
+
     DECLARE
       v_expected_v2 integer;
       v_contrib_sum integer;
       v_base_score  integer := 700;
     BEGIN
-      SELECT coalesce(sum(points_awarded), 0) INTO v_contrib_sum
-      FROM   public.score_v2_contributions
-      WHERE  user_id      = v_borrower_id
-      AND    model_key    = 'iou_score'
-      AND    model_version = v_snap.model_version;
+      SELECT coalesce(sum(
+        CASE
+          WHEN c.impact_direction = 'penalty' THEN -c.points_awarded
+          ELSE c.points_awarded
+        END
+      ), 0)::integer
+      INTO v_contrib_sum
+      FROM public.score_v2_contributions AS c
+      JOIN public.trust_outcome_events AS e
+        ON e.id = c.outcome_event_id
+      WHERE c.user_id = v_borrower_id
+        AND c.model_key = 'iou_score'
+        AND c.model_version = v_snap.model_version
+        AND e.outcome_at > now() - interval '2 years';
 
-      v_expected_v2 := greatest(300, least(1400, v_base_score + v_contrib_sum));
+      v_expected_v2 :=
+        greatest(300, least(1400, v_base_score + v_contrib_sum));
 
-      IF v_snap.v2_shadow_score = v_expected_v2 AND v_snap.score_contributed_total = v_contrib_sum THEN
+      IF v_snap.v2_shadow_score = v_expected_v2
+         AND v_snap.score_contributed_total = v_contrib_sum
+      THEN
         v_pass := v_pass + 1;
-        RAISE NOTICE 'PASS 7.4: v2_shadow_score=% matches base+contributions (% + %=%)',
-          v_snap.v2_shadow_score, v_base_score, v_contrib_sum, v_expected_v2;
+        RAISE NOTICE
+          'PASS 7.4: v2_shadow_score=% matches base plus signed active contributions (% + %=%)',
+          v_snap.v2_shadow_score,
+          v_base_score,
+          v_contrib_sum,
+          v_expected_v2;
       ELSE
         v_fail := v_fail + 1;
-        v_fail_msgs := v_fail_msgs || ' | 7.4 v2_score=' || v_snap.v2_shadow_score || ' expected=' || v_expected_v2 || ' contrib_total=' || v_snap.score_contributed_total || ' contrib_sum=' || v_contrib_sum;
-        RAISE WARNING 'FAIL 7.4: v2_shadow_score=% expected=%, contrib_total=% sum=%',
-          v_snap.v2_shadow_score, v_expected_v2, v_snap.score_contributed_total, v_contrib_sum;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 7.4 v2_score='
+          || v_snap.v2_shadow_score
+          || ' expected='
+          || v_expected_v2
+          || ' contrib_total='
+          || v_snap.score_contributed_total
+          || ' signed_contrib_sum='
+          || v_contrib_sum;
+        RAISE WARNING
+          'FAIL 7.4: v2_score=%, expected=%, contrib_total=%, signed_sum=%',
+          v_snap.v2_shadow_score,
+          v_expected_v2,
+          v_snap.score_contributed_total,
+          v_contrib_sum;
       END IF;
     END;
   EXCEPTION WHEN OTHERS THEN
@@ -1099,47 +1293,11 @@ BEGIN
   END;
 
   -- ===========================================================================
-  -- CLEANUP (runs only when no fatal exception occurred above)
+  -- CLEANUP
   -- ===========================================================================
-  RAISE NOTICE '--- Cleanup ---';
-
-  -- Delete in dependency order.
-  DELETE FROM public.trust_score_snapshots WHERE id = v_snap_id;
-
-  DELETE FROM public.payment_receipts
-  WHERE  payment_id IN (v_pay1_id, v_pay2a_id, v_pay2b_id);
-
-  DELETE FROM public.receipts
-  WHERE  iou_id IN (v_iou1_id, v_iou2_id);
-
-  DELETE FROM public.agreement_events
-  WHERE  score_agreement_id IN (v_sagr1_id, v_sagr2_id);
-
-  -- score_v2_contributions is append-only (immutability trigger).
-  -- Disable the trigger to allow test data cleanup, then re-enable.
-  ALTER TABLE public.score_v2_contributions DISABLE TRIGGER trg_score_v2_contributions_immutable;
-  DELETE FROM public.score_v2_contributions
-  WHERE  score_agreement_id IN (v_sagr1_id, v_sagr2_id);
-  ALTER TABLE public.score_v2_contributions ENABLE TRIGGER trg_score_v2_contributions_immutable;
-
-  DELETE FROM public.trust_outcome_events
-  WHERE  score_agreement_id IN (v_sagr1_id, v_sagr2_id);
-
-  DELETE FROM public.score_events
-  WHERE  user_id IN (v_lender_id, v_borrower_id);
-
-  DELETE FROM public.score_agreements
-  WHERE  id IN (v_sagr1_id, v_sagr2_id);
-
-  DELETE FROM public.payments
-  WHERE  iou_id IN (v_iou1_id, v_iou2_id);
-
-  DELETE FROM public.ious
-  WHERE  id IN (v_iou1_id, v_iou2_id);
-
-  -- Cascade deletes profiles (profiles_id_fkey ON DELETE CASCADE).
-  DELETE FROM auth.users
-  WHERE  id IN (v_lender_id, v_borrower_id);
+  -- Never delete append-only trust evidence. The outer transaction rollback
+  -- removes every temporary regression fixture atomically.
+  RAISE NOTICE '--- Cleanup deferred to transaction rollback ---';
 
   -- ===========================================================================
   -- RESULTS
@@ -1156,3 +1314,11 @@ BEGIN
 
 END;
 $$;
+
+SELECT jsonb_build_object(
+  'suite', 'ACH + Score v2 regression',
+  'passed', true,
+  'cleanup', 'transaction_rollback'
+) AS regression_ach_score_v2_summary;
+
+ROLLBACK;
