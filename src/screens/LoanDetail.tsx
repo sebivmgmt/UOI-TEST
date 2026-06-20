@@ -63,6 +63,48 @@ type BorrowerProfile = {
   public_name?: string | null;
 } | null;
 
+// DEV-only — Score v2.2 in-progress view
+type ScoreV22Progress = {
+  score_agreement_id: string;
+  model_version: string;
+  principal_cents: number;
+  paid_cents: number;
+  repayment_fraction: number;
+  completion_progress_points: number;
+  completion_reward_max: number;
+  early_bonus_earned: number;
+  early_bonus_max: number;
+  pending_positive_points: number;
+  active_penalties: number;
+  projected_completed_contribution: number;
+  current_public_score_effect: number;
+  agreement_completed: boolean;
+  positive_points_unlocked: boolean;
+  positive_points_unlock_condition: string;
+};
+
+function isScoreV22Progress(v: unknown): v is ScoreV22Progress {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.model_version === 'string' &&
+    typeof r.principal_cents === 'number' &&
+    typeof r.paid_cents === 'number' &&
+    typeof r.repayment_fraction === 'number' &&
+    typeof r.completion_progress_points === 'number' &&
+    typeof r.completion_reward_max === 'number' &&
+    typeof r.early_bonus_earned === 'number' &&
+    typeof r.early_bonus_max === 'number' &&
+    typeof r.pending_positive_points === 'number' &&
+    typeof r.active_penalties === 'number' &&
+    typeof r.projected_completed_contribution === 'number' &&
+    typeof r.current_public_score_effect === 'number' &&
+    typeof r.agreement_completed === 'boolean' &&
+    typeof r.positive_points_unlocked === 'boolean' &&
+    typeof r.positive_points_unlock_condition === 'string'
+  );
+}
+
 // ---------------------------------------------
 // CONSTANTS
 // ---------------------------------------------
@@ -87,6 +129,291 @@ const parseDateLocal = (dateStr: string): Date => {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
 };
+
+// ── DEV-only Score v2.2 progress card ────────────────────────────────────────
+
+const sv = StyleSheet.create({
+  card: {
+    marginTop: 14,
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#312E81',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#818CF8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  refreshBtn: {
+    backgroundColor: '#1E1B4B',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: '#4338CA',
+  },
+  refreshBtnText: {
+    color: '#818CF8',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  stateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  stateText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  errorBox: {
+    marginTop: 6,
+    backgroundColor: '#1C0A0A',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#7F1D1D',
+  },
+  errorText: {
+    color: '#FCA5A5',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  modelVer: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  section: {
+    marginTop: 10,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  sectionValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#E2E8F0',
+  },
+  dimText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  metaLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94A3B8',
+    flex: 1,
+    paddingRight: 8,
+  },
+  metaValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#E2E8F0',
+  },
+  noteText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#1E293B',
+    marginVertical: 10,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 4,
+  },
+  badge: {
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  badgeGreen: {
+    backgroundColor: '#052E16',
+    borderWidth: 1,
+    borderColor: '#166534',
+  },
+  badgeGray: {
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#CBD5E1',
+  },
+  unlockText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  positive: { color: '#86EFAC' },
+  negative: { color: '#FCA5A5' },
+});
+
+function ScoreV22DevCard({
+  data,
+  loading,
+  error,
+  onRefresh,
+}: {
+  data: ScoreV22Progress | null;
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
+  const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
+
+  return (
+    <View style={sv.card}>
+      <View style={sv.cardHeader}>
+        <Text style={sv.cardLabel}>DEV — Score v2.2 Progress</Text>
+        <TouchableOpacity onPress={onRefresh} style={sv.refreshBtn} activeOpacity={0.7}>
+          <Text style={sv.refreshBtnText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+
+      {loading && (
+        <View style={sv.stateRow}>
+          <ActivityIndicator size="small" color="#818CF8" />
+          <Text style={sv.stateText}>Loading…</Text>
+        </View>
+      )}
+
+      {!loading && !!error && (
+        <View style={sv.errorBox}>
+          <Text style={sv.errorText}>{error}</Text>
+        </View>
+      )}
+
+      {!loading && !error && !data && (
+        <Text style={sv.stateText}>No score v2.2 data.</Text>
+      )}
+
+      {!loading && !error && !!data && (
+        <View>
+          <Text style={sv.modelVer}>{data.model_version}</Text>
+
+          <View style={sv.section}>
+            <Text style={sv.sectionLabel}>Repayment</Text>
+            <Text style={sv.sectionValue}>
+              {currency(data.paid_cents)} / {currency(data.principal_cents)}
+              {'  '}
+              <Text style={sv.dimText}>{pct(data.repayment_fraction)}</Text>
+            </Text>
+          </View>
+
+          <View style={sv.section}>
+            <View style={sv.metaRow}>
+              <Text style={sv.metaLabel}>Completion progress</Text>
+              <Text style={sv.metaValue}>
+                {data.completion_progress_points} / {data.completion_reward_max} pts
+              </Text>
+            </View>
+            <View style={[sv.metaRow, { marginTop: 6 }]}>
+              <Text style={sv.metaLabel}>Early bonus</Text>
+              <Text style={sv.metaValue}>
+                {data.early_bonus_earned} / {data.early_bonus_max} pts
+              </Text>
+            </View>
+          </View>
+
+          <View style={sv.divider} />
+
+          <View style={sv.section}>
+            <View style={sv.metaRow}>
+              <Text style={sv.metaLabel}>Pending positive points</Text>
+              <Text style={[sv.metaValue, sv.positive]}>
+                +{data.pending_positive_points}
+              </Text>
+            </View>
+            <Text style={sv.noteText}>Not public yet — unlocks on completion</Text>
+
+            <View style={[sv.metaRow, { marginTop: 8 }]}>
+              <Text style={sv.metaLabel}>Active penalties</Text>
+              <Text style={[sv.metaValue, sv.negative]}>
+                {data.active_penalties > 0 ? `−${data.active_penalties}` : '0'}
+              </Text>
+            </View>
+            <Text style={sv.noteText}>Applies to public score now</Text>
+
+            <View style={[sv.metaRow, { marginTop: 8 }]}>
+              <Text style={sv.metaLabel}>Current public score effect</Text>
+              <Text style={[sv.metaValue, data.current_public_score_effect < 0 ? sv.negative : sv.positive]}>
+                {data.current_public_score_effect > 0 ? '+' : ''}{data.current_public_score_effect}
+              </Text>
+            </View>
+          </View>
+
+          <View style={sv.divider} />
+
+          <View style={sv.section}>
+            <View style={sv.metaRow}>
+              <Text style={sv.metaLabel}>Projected contribution (at completion)</Text>
+              <Text style={[sv.metaValue, data.projected_completed_contribution >= 0 ? sv.positive : sv.negative]}>
+                {data.projected_completed_contribution > 0 ? '+' : ''}{data.projected_completed_contribution}
+              </Text>
+            </View>
+            <Text style={sv.noteText}>Not awarded yet</Text>
+          </View>
+
+          <View style={sv.divider} />
+
+          <View style={sv.statusRow}>
+            <View style={[sv.badge, data.agreement_completed ? sv.badgeGreen : sv.badgeGray]}>
+              <Text style={sv.badgeText}>
+                {data.agreement_completed ? 'Completed' : 'In progress'}
+              </Text>
+            </View>
+            <View style={[sv.badge, data.positive_points_unlocked ? sv.badgeGreen : sv.badgeGray]}>
+              <Text style={sv.badgeText}>
+                {data.positive_points_unlocked ? 'Points unlocked' : 'Points locked'}
+              </Text>
+            </View>
+          </View>
+
+          {!!data.positive_points_unlock_condition && (
+            <Text style={sv.unlockText}>{data.positive_points_unlock_condition}</Text>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
 
 // Tracks which IOU ids have already shown the swipe nudge this session
 const shownSwipeNudge = new Set<string>();
@@ -123,6 +450,11 @@ export default function LoanDetail({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [borrowerProfile, setBorrowerProfile] = useState<BorrowerProfile>(null);
+
+  // DEV-only — Score v2.2 progress
+  const [scoreV22Data, setScoreV22Data] = useState<ScoreV22Progress | null>(null);
+  const [scoreV22Loading, setScoreV22Loading] = useState(false);
+  const [scoreV22Error, setScoreV22Error] = useState<string | null>(null);
 
   // -------------------------------------------
   // AUTH
@@ -277,6 +609,35 @@ export default function LoanDetail({ route, navigation }: any) {
     }, [fetchAll])
   );
 
+  // DEV-only: fetch Score v2.2 progress for this IOU when the caller is the borrower.
+  // get_my_iou_score_v22_progress resolves score_agreement_id server-side and
+  // verifies auth.uid() is the score subject — no direct score_agreements access.
+  const fetchScoreV22Progress = useCallback(async () => {
+    if (!iouId) return;
+    setScoreV22Loading(true);
+    setScoreV22Error(null);
+    try {
+      const { data: rawProgress, error: rpcErr } = await supabase
+        .rpc('get_my_iou_score_v22_progress', { p_iou_id: iouId });
+
+      if (rpcErr) {
+        setScoreV22Error(`Score v2.2 progress is unavailable for this IOU.`);
+        return;
+      }
+
+      if (!isScoreV22Progress(rawProgress)) {
+        setScoreV22Error('Score v2.2 progress is unavailable for this IOU.');
+        return;
+      }
+
+      setScoreV22Data(rawProgress);
+    } catch {
+      setScoreV22Error('Score v2.2 progress is unavailable for this IOU.');
+    } finally {
+      setScoreV22Loading(false);
+    }
+  }, [iouId]);
+
   useEffect(() => {
     if (!iouId) return;
 
@@ -321,6 +682,22 @@ export default function LoanDetail({ route, navigation }: any) {
   const isDeleted = !!iou?.deleted_at;
   const isLender = !!me && !!iou && me === iou.lender_id;
   const isBorrower = !!me && !!iou && me === iou.borrower_id;
+
+  // DEV: trigger v22 fetch when IOU loads and the authenticated user is the borrower
+  useEffect(() => {
+    if (!__DEV__ || !isBorrower) return;
+    void fetchScoreV22Progress();
+  // iou?.id as dep: fires when iou first loads; stable thereafter unless IOU changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iou?.id, me, fetchScoreV22Progress]);
+
+  // DEV: refetch on every screen focus so score data stays current after payments
+  useFocusEffect(
+    useCallback(() => {
+      if (!__DEV__ || !isBorrower) return;
+      void fetchScoreV22Progress();
+    }, [isBorrower, fetchScoreV22Progress])
+  );
 
   const isIncomingView = routeDirection
     ? routeDirection === 'in'
@@ -1292,6 +1669,15 @@ export default function LoanDetail({ route, navigation }: any) {
                 </Text>
                 <Text style={s.streakText}>{repaymentStreakText}</Text>
               </TouchableOpacity>
+            )}
+
+            {__DEV__ && isBorrower && (
+              <ScoreV22DevCard
+                data={scoreV22Data}
+                loading={scoreV22Loading}
+                error={scoreV22Error}
+                onRefresh={() => { void fetchScoreV22Progress(); }}
+              />
             )}
           </View>
         }
