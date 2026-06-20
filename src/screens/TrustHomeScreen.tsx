@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +20,7 @@ const GREEN_DARK = "#5F9F5F";
 const RED = "#D9534F";
 const BLUE = "#3B82F6";
 const AMBER = "#B7791F";
+const PURPLE = "#7C3AED";
 const BG = "#F5F7F9";
 
 type PublicProfileRow = {
@@ -31,6 +33,27 @@ type PublicProfileRow = {
   score_cap: number | null;
   lifetime_score_cap: number | null;
   strike_count: number | null;
+};
+
+type ShadowScoreRow = {
+  model_version: string;
+  base_score: number;
+  effective_contribution_total: number;
+  shadow_score: number;
+  active_exposure_points: number;
+  freshness_score: number;
+  visible_trust: number;
+  trust_tier: string;
+  proof_depth: number;
+  proof_depth_label: string;
+  confidence_score: number;
+  confidence_label: string;
+  qualifying_agreement_count: number;
+  qualifying_ceiling_total: number;
+  lifetime_reward_total: number;
+  lifetime_penalty_total: number;
+  contribution_window_start: string;
+  days_on_platform: number;
 };
 
 const PILLARS = [
@@ -90,28 +113,54 @@ function EntryCard({
 
 export default function TrustHomeScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<PublicProfileRow | null>(null);
+  const [shadowData, setShadowData] = useState<ShadowScoreRow | null>(null);
+  const [shadowLoading, setShadowLoading] = useState(true);
+  const [shadowError, setShadowError] = useState<string | null>(null);
   const [pillarsOpen, setPillarsOpen] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const me = (await supabase.auth.getUser()).data.user;
       if (!me?.id) return;
 
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, iou_hash, display_name, name, iou_score, active_exposure_points, score_cap, lifetime_score_cap, strike_count")
-        .eq("id", me.id)
-        .single();
+      const [profileResult, shadowResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, iou_hash, display_name, name, iou_score, active_exposure_points, score_cap, lifetime_score_cap, strike_count")
+          .eq("id", me.id)
+          .single(),
+        supabase.rpc("get_my_current_trust_score"),
+      ]);
 
-      if (data) setProfile(data as PublicProfileRow);
+      if (profileResult.data) setProfile(profileResult.data as PublicProfileRow);
+
+      if (shadowResult.error) {
+        setShadowError(shadowResult.error.message ?? "Failed to load v2.1 score");
+        setShadowData(null);
+      } else {
+        const rows = shadowResult.data as ShadowScoreRow[] | null;
+        setShadowData(rows?.[0] ?? null);
+        setShadowError(null);
+      }
     } finally {
       setLoading(false);
+      setShadowLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    setLoading(true);
+    setShadowLoading(true);
+    void load();
+  }, [load]);
 
   const score = useMemo(() => {
     if (typeof profile?.iou_score !== "number") return null;
@@ -140,6 +189,9 @@ export default function TrustHomeScreen({ navigation }: any) {
       style={{ flex: 1, backgroundColor: BG }}
       contentContainerStyle={s.content}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={GREEN} />
+      }
     >
       {/* Score hero */}
       <TouchableOpacity
@@ -182,6 +234,84 @@ export default function TrustHomeScreen({ navigation }: any) {
           <Text style={s.scoreHistoryCtaArrow}>→</Text>
         </View>
       </TouchableOpacity>
+
+      {/* Score v2.1 Shadow — DEV only */}
+      <View style={s.shadowCard}>
+        <View style={s.shadowHeader}>
+          <Text style={s.shadowTitle}>Score v2.1 — Shadow</Text>
+          <View style={s.shadowBadge}>
+            <Text style={s.shadowBadgeText}>DEV</Text>
+          </View>
+        </View>
+
+        {shadowLoading && !shadowData ? (
+          <ActivityIndicator color={PURPLE} style={{ marginTop: 12 }} />
+        ) : shadowError ? (
+          <View style={s.shadowErrorBlock}>
+            <Text style={s.shadowErrorText}>{shadowError}</Text>
+            <TouchableOpacity
+              style={s.retryBtn}
+              onPress={() => { setShadowLoading(true); void load(); }}
+              activeOpacity={0.8}
+            >
+              <Text style={s.retryBtnText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : shadowData ? (
+          <>
+            <View style={s.shadowScoreRow}>
+              <Text style={s.shadowScoreValue}>{shadowData.shadow_score}</Text>
+              <View style={s.shadowTierPill}>
+                <Text style={s.shadowTierPillText}>{shadowData.trust_tier.replace(/_/g, " ")}</Text>
+              </View>
+            </View>
+            <Text style={s.shadowModelLabel}>{shadowData.model_version}</Text>
+
+            <View style={s.shadowMetrics}>
+              <View style={s.shadowMetric}>
+                <Text style={s.shadowMetricLabel}>Visible Trust</Text>
+                <Text style={s.shadowMetricValue}>{shadowData.visible_trust}</Text>
+              </View>
+              <View style={s.shadowMetric}>
+                <Text style={s.shadowMetricLabel}>Exposure</Text>
+                <Text style={[s.shadowMetricValue, shadowData.active_exposure_points > 0 && { color: AMBER }]}>
+                  {shadowData.active_exposure_points > 0 ? `-${shadowData.active_exposure_points}` : "0"}
+                </Text>
+              </View>
+              <View style={s.shadowMetric}>
+                <Text style={s.shadowMetricLabel}>Contributions</Text>
+                <Text style={[s.shadowMetricValue, shadowData.effective_contribution_total >= 0 ? { color: GREEN_DARK } : { color: RED }]}>
+                  {shadowData.effective_contribution_total >= 0 ? `+${shadowData.effective_contribution_total}` : `${shadowData.effective_contribution_total}`}
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.shadowMetrics}>
+              <View style={s.shadowMetric}>
+                <Text style={s.shadowMetricLabel}>Proof Depth</Text>
+                <Text style={s.shadowMetricValue}>{shadowData.proof_depth}</Text>
+                <Text style={s.shadowMetricSub}>{shadowData.proof_depth_label.replace(/_/g, " ")}</Text>
+              </View>
+              <View style={s.shadowMetric}>
+                <Text style={s.shadowMetricLabel}>Confidence</Text>
+                <Text style={s.shadowMetricValue}>{shadowData.confidence_score}</Text>
+                <Text style={s.shadowMetricSub}>{shadowData.confidence_label.replace(/_/g, " ")}</Text>
+              </View>
+              <View style={s.shadowMetric}>
+                <Text style={s.shadowMetricLabel}>Agreements</Text>
+                <Text style={s.shadowMetricValue}>{shadowData.qualifying_agreement_count}</Text>
+                <Text style={s.shadowMetricSub}>in window</Text>
+              </View>
+            </View>
+
+            <View style={s.shadowFooter}>
+              <Text style={s.shadowFooterText}>
+                Rewards +{shadowData.lifetime_reward_total} · Penalties −{shadowData.lifetime_penalty_total} · Base {shadowData.base_score}
+              </Text>
+            </View>
+          </>
+        ) : null}
+      </View>
 
       {/* Trust data entry points */}
       <Text style={s.sectionLabel}>Your Trust</Text>
@@ -344,6 +474,129 @@ const s = StyleSheet.create({
   entryCardTitle: { fontSize: 15, fontWeight: "800", marginBottom: 3 },
   entryCardSub: { fontSize: 12, color: "#667085", lineHeight: 18 },
   entryCardArrow: { fontSize: 18, fontWeight: "900", marginLeft: 12 },
+
+  shadowCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: PURPLE + "33",
+  },
+  shadowHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  shadowTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    color: PURPLE,
+  },
+  shadowBadge: {
+    backgroundColor: PURPLE + "18",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  shadowBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: PURPLE,
+    letterSpacing: 0.5,
+  },
+  shadowScoreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 6,
+  },
+  shadowScoreValue: {
+    fontSize: 48,
+    fontWeight: "900",
+    color: PURPLE,
+    lineHeight: 54,
+  },
+  shadowTierPill: {
+    backgroundColor: PURPLE + "18",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  shadowTierPillText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: PURPLE,
+    textTransform: "capitalize",
+  },
+  shadowModelLabel: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginBottom: 12,
+    marginTop: 2,
+  },
+  shadowMetrics: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
+  },
+  shadowMetric: {
+    flex: 1,
+    backgroundColor: "#F6F4FD",
+    borderRadius: 10,
+    padding: 10,
+  },
+  shadowMetricLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: PURPLE + "AA",
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  shadowMetricValue: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#111",
+  },
+  shadowMetricSub: {
+    fontSize: 10,
+    color: "#6B7280",
+    marginTop: 2,
+    textTransform: "capitalize",
+  },
+  shadowFooter: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: PURPLE + "22",
+  },
+  shadowFooterText: {
+    fontSize: 11,
+    color: "#9CA3AF",
+  },
+  shadowErrorBlock: {
+    marginTop: 12,
+    alignItems: "flex-start",
+  },
+  shadowErrorText: {
+    fontSize: 13,
+    color: RED,
+    marginBottom: 10,
+  },
+  retryBtn: {
+    backgroundColor: PURPLE + "18",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  retryBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: PURPLE,
+  },
 
   modal: { flex: 1, backgroundColor: "#fff" },
   modalHeader: {
