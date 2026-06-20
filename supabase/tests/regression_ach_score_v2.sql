@@ -735,6 +735,75 @@ BEGIN
     RAISE WARNING 'FAIL 5.1: %', sqlerrm;
   END;
 
+  -- 5.1A Borrower app contract exposes locked pending progress ───────────────
+  v_total := v_total + 1;
+  BEGIN
+    DECLARE
+      v_app_progress jsonb;
+    BEGIN
+      PERFORM set_config(
+        'request.jwt.claims',
+        json_build_object(
+          'sub', v_borrower_id::text,
+          'role', 'authenticated'
+        )::text,
+        true
+      );
+
+      v_app_progress :=
+        public.get_my_iou_score_v22_progress(v_iou2_id);
+
+      -- Restore a privileged test-runner claim for subsequent backend checks.
+      PERFORM set_config(
+        'request.jwt.claims',
+        json_build_object('role', 'service_role')::text,
+        true
+      );
+
+      IF (v_app_progress ->> 'model_version') = 'v2.2-shadow'
+         AND (v_app_progress ->> 'principal_cents')::bigint = 50000
+         AND (v_app_progress ->> 'paid_cents')::bigint = 25000
+         AND (v_app_progress ->> 'repayment_fraction')::numeric = 0.5
+         AND (v_app_progress ->> 'completion_progress_points')::integer = 11
+         AND (v_app_progress ->> 'completion_reward_max')::integer = 22
+         AND (v_app_progress ->> 'early_bonus_earned')::integer = 6
+         AND (v_app_progress ->> 'early_bonus_max')::integer = 6
+         AND (v_app_progress ->> 'pending_positive_points')::integer = 17
+         AND (v_app_progress ->> 'active_penalties')::integer = 0
+         AND (v_app_progress ->> 'projected_completed_contribution')::integer = 17
+         AND (v_app_progress ->> 'current_public_score_effect')::integer = 0
+         AND NOT (v_app_progress ->> 'agreement_completed')::boolean
+         AND NOT (v_app_progress ->> 'positive_points_unlocked')::boolean
+         AND (
+           v_app_progress ->> 'positive_points_unlock_condition'
+         ) = 'Positive points unlock when the IOU is completed'
+      THEN
+        v_pass := v_pass + 1;
+        RAISE NOTICE
+          'PASS 5.1A: borrower app RPC shows pending locked progress before completion';
+      ELSE
+        v_fail := v_fail + 1;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 5.1A app progress='
+          || v_app_progress::text;
+        RAISE WARNING
+          'FAIL 5.1A: unexpected pre-completion app progress=%',
+          v_app_progress;
+      END IF;
+    END;
+  EXCEPTION WHEN OTHERS THEN
+    -- Avoid leaking an authenticated borrower claim into later tests.
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('role', 'service_role')::text,
+      true
+    );
+    v_fail := v_fail + 1;
+    v_fail_msgs := v_fail_msgs || ' | 5.1A exception: ' || sqlerrm;
+    RAISE WARNING 'FAIL 5.1A: %', sqlerrm;
+  END;
+
   -- 5.2  Second payment: pay2b via manual flow; final payment triggers agreement_completed
   v_total := v_total + 1;
   BEGIN
@@ -819,6 +888,86 @@ BEGIN
     v_fail := v_fail + 1;
     v_fail_msgs := v_fail_msgs || ' | 5.3 exception: ' || sqlerrm;
     RAISE WARNING 'FAIL 5.3: %', sqlerrm;
+  END;
+
+  -- 5.3A Borrower app contract exposes unlocked completion result ───────────
+  v_total := v_total + 1;
+  BEGIN
+    DECLARE
+      v_app_progress_first  jsonb;
+      v_app_progress_second jsonb;
+    BEGIN
+      PERFORM set_config(
+        'request.jwt.claims',
+        json_build_object(
+          'sub', v_borrower_id::text,
+          'role', 'authenticated'
+        )::text,
+        true
+      );
+
+      v_app_progress_first :=
+        public.get_my_iou_score_v22_progress(v_iou2_id);
+      v_app_progress_second :=
+        public.get_my_iou_score_v22_progress(v_iou2_id);
+
+      PERFORM set_config(
+        'request.jwt.claims',
+        json_build_object('role', 'service_role')::text,
+        true
+      );
+
+      IF v_app_progress_first IS NOT DISTINCT FROM v_app_progress_second
+         AND (v_app_progress_first ->> 'model_version') = 'v2.2-shadow'
+         AND (v_app_progress_first ->> 'principal_cents')::bigint = 50000
+         AND (v_app_progress_first ->> 'paid_cents')::bigint = 50000
+         AND (v_app_progress_first ->> 'repayment_fraction')::numeric = 1
+         AND (v_app_progress_first ->> 'completion_progress_points')::integer = 22
+         AND (v_app_progress_first ->> 'completion_reward_max')::integer = 22
+         AND (v_app_progress_first ->> 'early_bonus_earned')::integer = 6
+         AND (v_app_progress_first ->> 'early_bonus_max')::integer = 6
+         AND (v_app_progress_first ->> 'pending_positive_points')::integer = 28
+         AND (v_app_progress_first ->> 'active_penalties')::integer = 0
+         AND (
+           v_app_progress_first
+           ->> 'projected_completed_contribution'
+         )::integer = 28
+         AND (
+           v_app_progress_first
+           ->> 'current_public_score_effect'
+         )::integer = 28
+         AND (v_app_progress_first ->> 'agreement_completed')::boolean
+         AND (v_app_progress_first ->> 'positive_points_unlocked')::boolean
+         AND (
+           v_app_progress_first ->> 'positive_points_unlock_condition'
+         ) = 'unlocked'
+      THEN
+        v_pass := v_pass + 1;
+        RAISE NOTICE
+          'PASS 5.3A: borrower app RPC shows unlocked completed contribution';
+      ELSE
+        v_fail := v_fail + 1;
+        v_fail_msgs :=
+          v_fail_msgs
+          || ' | 5.3A first='
+          || v_app_progress_first::text
+          || ' second='
+          || v_app_progress_second::text;
+        RAISE WARNING
+          'FAIL 5.3A: unexpected completed app progress first=%, second=%',
+          v_app_progress_first,
+          v_app_progress_second;
+      END IF;
+    END;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('role', 'service_role')::text,
+      true
+    );
+    v_fail := v_fail + 1;
+    v_fail_msgs := v_fail_msgs || ' | 5.3A exception: ' || sqlerrm;
+    RAISE WARNING 'FAIL 5.3A: %', sqlerrm;
   END;
 
   -- 5.4  Signed v2.2 contribution of IOU 2 never exceeds ceiling ──────────
