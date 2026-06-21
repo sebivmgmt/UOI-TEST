@@ -80,7 +80,8 @@ BEGIN
   VALUES (
     v_iou1_id, v_lender_id, v_borrower_id,
     50000, 0,
-    current_date, 1, 'monthly', 'open', now()
+    current_date, 1, 'monthly', 'open',
+    transaction_timestamp() - interval '2 seconds'
   );
 
   v_pay1_id := gen_random_uuid();
@@ -100,7 +101,8 @@ BEGIN
   VALUES (
     v_iou2_id, v_lender_id, v_borrower_id,
     50000, 0,
-    current_date, 2, 'monthly', 'open', now()
+    current_date, 2, 'monthly', 'open',
+    transaction_timestamp() - interval '1 second'
   );
 
   v_pay2a_id := gen_random_uuid();
