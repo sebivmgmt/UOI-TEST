@@ -130,6 +130,15 @@ const parseDateLocal = (dateStr: string): Date => {
   return new Date(y, m - 1, d);
 };
 
+const formatDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  return parseDateLocal(dateStr).toLocaleDateString(undefined, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+};
+
 // ── DEV-only Score v2.2 progress card ────────────────────────────────────────
 
 const sv = StyleSheet.create({
@@ -140,6 +149,11 @@ const sv = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   header: {
     flexDirection: 'row',
@@ -192,7 +206,7 @@ const sv = StyleSheet.create({
     paddingVertical: 8,
   },
   stateText: {
-    color: '#6B7280',
+    color: '#4B5563',
     fontSize: 14,
   },
   unavailableBox: {
@@ -210,29 +224,39 @@ const sv = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#E5E7EB',
     marginVertical: 16,
   },
   sectionLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 6,
+    letterSpacing: 0.5,
+    marginBottom: 8,
   },
   // Hero — current score effect
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 4,
+    marginBottom: 8,
+  },
   heroValue: {
     fontSize: 56,
     fontWeight: '900',
     letterSpacing: -1.5,
     lineHeight: 60,
-    marginBottom: 6,
+  },
+  heroUnit: {
+    fontSize: 20,
+    fontWeight: '700',
+    paddingBottom: 8,
   },
   heroCaption: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#6B7280',
+    color: '#374151',
     lineHeight: 20,
   },
   // Repayment
@@ -250,7 +274,7 @@ const sv = StyleSheet.create({
   repayPct: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#9CA3AF',
+    color: '#6B7280',
   },
   bar: {
     height: 8,
@@ -264,7 +288,7 @@ const sv = StyleSheet.create({
     backgroundColor: GREEN,
   },
   miniBar: {
-    height: 4,
+    height: 5,
     borderRadius: 999,
     backgroundColor: '#EAEAEA',
     overflow: 'hidden',
@@ -315,31 +339,46 @@ const sv = StyleSheet.create({
     marginBottom: 2,
   },
   earlyBonusLine: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
     color: '#374151',
     marginBottom: 2,
   },
-  pendingNote: {
-    marginTop: 10,
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#9CA3AF',
-    lineHeight: 18,
-  },
   // Projected at completion
+  projectedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 4,
+    marginBottom: 4,
+  },
   projectedValue: {
     fontSize: 32,
     fontWeight: '900',
     color: '#111827',
     letterSpacing: -0.5,
-    marginBottom: 4,
+  },
+  projectedUnit: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#6B7280',
+    paddingBottom: 4,
   },
   projectedNote: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
-    color: '#9CA3AF',
-    lineHeight: 18,
+    color: '#4B5563',
+    lineHeight: 19,
+  },
+  // Locked-state explanation (after projected)
+  lockedExplanation: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#374151',
+    lineHeight: 20,
   },
   // Active penalty
   penaltyBlock: {
@@ -349,7 +388,7 @@ const sv = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   penaltyLabel: {
     fontSize: 13,
@@ -357,13 +396,13 @@ const sv = StyleSheet.create({
     color: '#991B1B',
   },
   penaltyNote: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
-    color: '#9CA3AF',
+    color: '#6B7280',
     marginTop: 2,
   },
   penaltyValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
     color: '#DC2626',
   },
@@ -372,12 +411,12 @@ const sv = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: '#E5E7EB',
   },
   techToggleText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#6B7280',
   },
   techBox: {
     marginTop: 8,
@@ -497,11 +536,14 @@ function ScoreV22DevCard({
 
           {/* 1. Current score effect — hero */}
           <Text style={sv.sectionLabel}>Current score effect</Text>
-          <Text style={[sv.heroValue, { color: effectColor }]}>
-            {data.current_public_score_effect > 0 ? '+' : ''}
-            {data.current_public_score_effect}
-          </Text>
-          <Text style={sv.heroCaption}>{heroCaption}</Text>
+          <View style={sv.heroRow}>
+            <Text style={[sv.heroValue, { color: effectColor }]}>
+              {data.current_public_score_effect > 0 ? '+' : ''}
+              {data.current_public_score_effect}
+            </Text>
+            <Text style={[sv.heroUnit, { color: effectColor }]}>pts</Text>
+          </View>
+          {!!heroCaption && <Text style={sv.heroCaption}>{heroCaption}</Text>}
 
           <View style={sv.divider} />
 
@@ -519,7 +561,7 @@ function ScoreV22DevCard({
 
           <View style={sv.divider} />
 
-          {/* 3. Pending / completed score progress */}
+          {/* 3 + 4. Completion progress + early bonus */}
           <View style={sv.pendingSectionHeader}>
             <Text style={[sv.sectionLabel, { marginBottom: 0 }]}>
               {data.positive_points_unlocked ? 'Score progress' : 'Pending progress'}
@@ -540,7 +582,7 @@ function ScoreV22DevCard({
           </View>
 
           {data.early_bonus_max > 0 && (
-            <View style={{ marginTop: 10 }}>
+            <View style={{ marginTop: 12 }}>
               <Text style={sv.earlyBonusLine}>
                 {data.early_bonus_earned} of {data.early_bonus_max} early-payment bonus
               </Text>
@@ -550,35 +592,7 @@ function ScoreV22DevCard({
             </View>
           )}
 
-          {!data.positive_points_unlocked && (
-            <Text style={sv.pendingNote}>
-              {data.positive_points_unlock_condition || 'Pending points unlock when this IOU is completed.'}
-            </Text>
-          )}
-
-          <View style={sv.divider} />
-
-          {/* 4. Projected / completion result */}
-          <Text style={sv.sectionLabel}>
-            {data.positive_points_unlocked ? 'Completion result' : 'Projected at completion'}
-          </Text>
-          <Text style={[
-            sv.projectedValue,
-            data.positive_points_unlocked ? { color: GREEN } : undefined,
-          ]}>
-            {data.projected_completed_contribution > 0 ? '+' : ''}
-            {data.projected_completed_contribution}
-          </Text>
-          <Text style={[
-            sv.projectedNote,
-            data.positive_points_unlocked ? { color: '#15803D' } : undefined,
-          ]}>
-            {data.positive_points_unlocked
-              ? 'Applied to your IOU Score'
-              : 'Pending until this IOU is completed'}
-          </Text>
-
-          {/* 5. Active penalty — only shown when > 0 */}
+          {/* 5. Active penalty — shown only when > 0, before projected */}
           {data.active_penalties > 0 && (
             <>
               <View style={sv.divider} />
@@ -590,6 +604,41 @@ function ScoreV22DevCard({
                 <Text style={sv.penaltyValue}>−{data.active_penalties}</Text>
               </View>
             </>
+          )}
+
+          <View style={sv.divider} />
+
+          {/* 6. Projected / completion result */}
+          <Text style={sv.sectionLabel}>
+            {data.positive_points_unlocked ? 'Completion result' : 'Projected at completion'}
+          </Text>
+          <View style={sv.projectedRow}>
+            <Text style={[
+              sv.projectedValue,
+              data.positive_points_unlocked ? { color: GREEN } : undefined,
+            ]}>
+              {data.projected_completed_contribution > 0 ? '+' : ''}
+              {data.projected_completed_contribution}
+            </Text>
+            <Text style={[
+              sv.projectedUnit,
+              data.positive_points_unlocked ? { color: GREEN } : undefined,
+            ]}>pts</Text>
+          </View>
+          <Text style={[
+            sv.projectedNote,
+            data.positive_points_unlocked ? { color: '#15803D' } : undefined,
+          ]}>
+            {data.positive_points_unlocked
+              ? 'Applied to your IOU Score'
+              : 'Pending until this IOU is completed'}
+          </Text>
+
+          {/* 7. Locked-state explanation */}
+          {!data.positive_points_unlocked && (
+            <Text style={sv.lockedExplanation}>
+              {data.positive_points_unlock_condition || 'Positive points will apply to your IOU Score when this IOU is completed.'}
+            </Text>
           )}
 
           {/* Technical details — collapsible */}
@@ -998,14 +1047,14 @@ export default function LoanDetail({ route, navigation }: any) {
 
   const completionRewardText = useMemo(() => {
     if (paymentsRemaining === 0) {
-      return 'Loan completed. Completion is reflected in your trust history.';
+      return 'IOU complete. Completion is reflected in your trust history.';
     }
 
     if (paymentsRemaining === 1) {
-      return 'One payment left. Completing this loan will strengthen your IOU Score.';
+      return 'One payment left. Completion will finalize this IOU\'s score contribution.';
     }
 
-    return `${paymentsRemaining} payments remaining. Completing this loan will strengthen your IOU Score.`;
+    return `${paymentsRemaining} payments remaining. Completing this IOU will finalize its score contribution.`;
   }, [paymentsRemaining]);
 
   const repaymentStreakValue = useMemo(() => {
@@ -1069,28 +1118,22 @@ export default function LoanDetail({ route, navigation }: any) {
         Math.max(totalInstallments, rows.length) > 0;
 
       if (timing === 'early') {
-        if (isFinal) {
-          return 'Paying early may strengthen your IOU Score. Completion will be reflected in your trust history.';
-        }
         return 'Paying early may strengthen your IOU Score.';
       }
 
       if (timing === 'on_time') {
-        if (isFinal) {
-          return 'On-time payment builds your IOU Score. Completion will be reflected in your trust history.';
-        }
-        return 'On-time payment builds your IOU Score.';
+        return 'On-time payment contributes toward completion progress.';
       }
 
       if (timing === 'late') {
         if (isFinal) {
-          return 'Late payment — completion will still be reflected in your trust history.';
+          return 'Late payment — completion still reflected in your trust history.';
         }
-        return 'Late payment — no timing reward.';
+        return 'Late payment — no timing bonus.';
       }
 
       if (isFinal) {
-        return 'Final payment — completion will be reflected in your trust history.';
+        return 'Final payment — completion will reflect in your trust history.';
       }
 
       return null;
@@ -1379,33 +1422,41 @@ export default function LoanDetail({ route, navigation }: any) {
     ]);
   };
 
+  // Shared payment eligibility — single source of truth used by both the
+  // next-payment card CTA and individual installment row canPay.
+  const isPayEligible = (item: PaymentRow): boolean =>
+    isOutgoingView &&
+    !isArchived &&
+    !isDeleted &&
+    !item.paid_at &&
+    (item.status === 'scheduled' || item.status === 'late');
+
   // -------------------------------------------
   // SMALL UI COMPONENTS
   // -------------------------------------------
 
   const StatusPill = ({ value }: { value: string }) => {
-    const bg =
+    const config =
       value === 'paid'
-        ? '#C8E6C9'
+        ? { bg: '#DCFCE7', border: '#BBF7D0', text: '#15803D', label: 'Paid' }
         : value === 'pending_confirmation'
-          ? '#BBDEFB'
+          ? { bg: '#EFF6FF', border: '#BFDBFE', text: '#1D4ED8', label: 'Pending' }
           : value === 'processing'
-            ? '#DBEAFE'
+            ? { bg: '#EFF6FF', border: '#BFDBFE', text: '#1565C0', label: 'Processing' }
             : value === 'late'
-              ? '#FFCDD2'
-              : '#E0E0E0';
-
-    const label =
-      value === 'paid' ? 'Paid' :
-      value === 'pending_confirmation' ? 'Pending' :
-      value === 'processing' ? 'Processing' :
-      value === 'scheduled' ? 'Autopay' :
-      value === 'late' ? 'Overdue' :
-      value.charAt(0).toUpperCase() + value.slice(1);
+              ? { bg: '#FEF2F2', border: '#FECACA', text: '#991B1B', label: 'Overdue' }
+              : value === 'scheduled'
+                ? { bg: '#F3F4F6', border: '#E5E7EB', text: '#374151', label: 'Autopay' }
+                : {
+                    bg: '#F3F4F6',
+                    border: '#E5E7EB',
+                    text: '#374151',
+                    label: value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, ' '),
+                  };
 
     return (
-      <View style={[s.pill, { backgroundColor: bg }]}>
-        <Text style={s.pillTxt}>{label}</Text>
+      <View style={[s.pill, { backgroundColor: config.bg, borderColor: config.border, borderWidth: 1 }]}>
+        <Text style={[s.pillTxt, { color: config.text }]}>{config.label}</Text>
       </View>
     );
   };
@@ -1424,12 +1475,7 @@ export default function LoanDetail({ route, navigation }: any) {
     const nudgeAnim = useRef(new Animated.Value(0)).current;
     const confirmNudge = useRef(new Animated.Value(0)).current;
 
-    const canPay =
-      isOutgoingView &&
-      !isArchived &&
-      !isDeleted &&
-      !item.paid_at &&
-      (item.status === 'scheduled' || item.status === 'late');
+    const canPay = isPayEligible(item);
 
     useEffect(() => {
       if (!isFirstUnpaid || !canPay) return;
@@ -1598,143 +1644,134 @@ export default function LoanDetail({ route, navigation }: any) {
             }
           }}
         >
-          <View style={s.payRow}>
+          <View style={[s.payRow, item.paid_at ? s.payRowDone : undefined]}>
+            {/* Installment label + status pill */}
             <View style={s.rowTop}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.paymentIndexText}>
-                  Payment {index + 1} of {Math.max(totalInstallments, rows.length)}
+              <Text style={s.paymentIndexText}>
+                Installment {index + 1} of {Math.max(totalInstallments, rows.length)}
+              </Text>
+              <StatusPill value={item.paid_at ? 'paid' : item.status || 'scheduled'} />
+            </View>
+
+            {/* Amount */}
+            <Text style={[s.amountText, item.paid_at ? s.amountTextDone : undefined]}>
+              {currency(item.amount_cents)}
+            </Text>
+
+            {/* Due date — human readable */}
+            <Text style={s.dueText}>Due {formatDate(item.due)}</Text>
+
+            {/* Paid date */}
+            {!!item.paid_at && (
+              <Text style={s.paidDateText}>
+                Paid {new Date(item.paid_at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+              </Text>
+            )}
+
+            {/* Extension status for borrower */}
+            {isOutgoingView && item.extension_status === 'requested' && (
+              <View style={s.extensionStatusPill}>
+                <Text style={s.extensionStatusText}>Extension pending lender approval</Text>
+              </View>
+            )}
+            {isOutgoingView && item.extension_status === 'approved' && !!item.extension_requested_until && (
+              <View style={[s.extensionStatusPill, s.extensionApprovedPill]}>
+                <Text style={[s.extensionStatusText, { color: '#1B5E20' }]}>
+                  Extended to {parseDateLocal(item.extension_requested_until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                 </Text>
+              </View>
+            )}
+            {isOutgoingView && item.extension_status === 'denied' && (
+              <View style={[s.extensionStatusPill, s.extensionDeniedPill]}>
+                <Text style={[s.extensionStatusText, { color: '#B42318' }]}>Extension denied — original due date applies</Text>
+              </View>
+            )}
 
-                <Text style={s.amountText}>{currency(item.amount_cents)}</Text>
-                <Text style={s.dueText}>Due {item.due}</Text>
+            {/* Lender: approve or deny an incoming extension request */}
+            {isIncomingView && item.extension_status === 'requested' && !!item.extension_requested_until && (
+              <View style={s.extensionRequestCard}>
+                <Text style={s.extensionRequestLabel}>Extension requested</Text>
+                <Text style={s.extensionRequestDate}>
+                  Borrower requests until{' '}
+                  {parseDateLocal(item.extension_requested_until).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+                </Text>
+                <View style={s.extensionActions}>
+                  <TouchableOpacity style={s.extensionApproveBtn} onPress={() => approveExtension(item)}>
+                    <Text style={s.extensionApproveTxt}>Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.extensionDenyBtn} onPress={() => denyExtension(item)}>
+                    <Text style={s.extensionDenyTxt}>Deny</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
-                {!!rewardPreviewText && (
-                  <Text style={s.rewardPreviewText}>{rewardPreviewText}</Text>
-                )}
+            {/* State notes */}
+            {isOutgoingView && item.status === 'processing' && !item.paid_at && (
+              <Text style={s.processingNote}>ACH payment in progress</Text>
+            )}
+            {isOutgoingView && item.status === 'pending_confirmation' && !item.paid_at && (
+              <Text style={s.pendingConfirmNote}>Manual payment submitted · Waiting for lender</Text>
+            )}
 
-                {/* Extension status for borrower */}
-                {isOutgoingView && item.extension_status === 'requested' && (
-                  <View style={s.extensionStatusPill}>
-                    <Text style={s.extensionStatusText}>Extension pending lender approval</Text>
-                  </View>
-                )}
-                {isOutgoingView && item.extension_status === 'approved' && !!item.extension_requested_until && (
-                  <View style={[s.extensionStatusPill, s.extensionApprovedPill]}>
-                    <Text style={[s.extensionStatusText, { color: '#1B5E20' }]}>
-                      Extended to {parseDateLocal(item.extension_requested_until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </Text>
-                  </View>
-                )}
-                {isOutgoingView && item.extension_status === 'denied' && (
-                  <View style={[s.extensionStatusPill, s.extensionDeniedPill]}>
-                    <Text style={[s.extensionStatusText, { color: '#B42318' }]}>Extension denied — original due date applies</Text>
-                  </View>
-                )}
+            {__DEV__ && !item.paid_at && item.status === 'pending_confirmation' && !!devConfirmPayment && (
+              <TouchableOpacity style={s.devConfirmBtn} onPress={() => void devConfirmPayment(item)} activeOpacity={0.8}>
+                <Text style={s.devConfirmBtnText}>Dev: Confirm Payment</Text>
+              </TouchableOpacity>
+            )}
 
-                {/* Lender: approve or deny an incoming extension request */}
-                {isIncomingView && item.extension_status === 'requested' && !!item.extension_requested_until && (
-                  <View style={s.extensionRequestCard}>
-                    <Text style={s.extensionRequestLabel}>EXTENSION REQUESTED</Text>
-                    <Text style={s.extensionRequestDate}>
-                      Borrower requests until{' '}
-                      {parseDateLocal(item.extension_requested_until).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
-                    </Text>
-                    <View style={s.extensionActions}>
-                      <TouchableOpacity
-                        style={s.extensionApproveBtn}
-                        onPress={() => approveExtension(item)}
-                      >
-                        <Text style={s.extensionApproveTxt}>Approve</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={s.extensionDenyBtn}
-                        onPress={() => denyExtension(item)}
-                      >
-                        <Text style={s.extensionDenyTxt}>Deny</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
+            {/* Reward context */}
+            {!!rewardPreviewText && (
+              <Text style={s.rewardPreviewText}>{rewardPreviewText}</Text>
+            )}
 
-                {isOutgoingView && item.status === 'scheduled' && !item.paid_at && (
-                  <Text style={s.autopayNote}>AutoPay withdraws on the due date</Text>
-                )}
-
-                {isOutgoingView && item.status === 'processing' && !item.paid_at && (
-                  <Text style={s.processingNote}>ACH payment in progress</Text>
-                )}
-
-                {isOutgoingView && item.status === 'pending_confirmation' && !item.paid_at && (
-                  <Text style={s.pendingConfirmNote}>Manual payment submitted · Waiting for lender</Text>
-                )}
-
-                {__DEV__ && !item.paid_at && item.status === 'pending_confirmation' && !!devConfirmPayment && (
+            {/* Primary actions — outgoing unpaid */}
+            {!item.paid_at && canPay && (
+              <View style={s.actionArea}>
+                <TouchableOpacity style={s.btnPrimary} onPress={() => goToAchPayScreen(item)} activeOpacity={0.85}>
+                  <Text style={s.btnPrimaryText}>{item.status === 'late' ? 'Pay now' : 'Pay early'}</Text>
+                </TouchableOpacity>
+                {canRequestExtension && (
                   <TouchableOpacity
-                    style={s.devConfirmBtn}
-                    onPress={() => void devConfirmPayment(item)}
-                    activeOpacity={0.8}
+                    style={s.btnSecondary}
+                    onPress={() =>
+                      navigation.navigate('RequestExtension', {
+                        paymentId: item.id,
+                        iouId: iouId!,
+                        scheduledAt: item.due,
+                        paymentAmount: item.amount_cents,
+                        title: iou?.title,
+                      })
+                    }
                   >
-                    <Text style={s.devConfirmBtnText}>Dev: Confirm Payment</Text>
+                    <Text style={s.btnSecondaryText}>Request extension</Text>
                   </TouchableOpacity>
                 )}
-
-                {!item.paid_at && canPay && (
-                  <View>
-                    <View style={s.inlineActionRow}>
-                      <TouchableOpacity
-                        style={[s.inlineBtn, s.inlineBtnPay]}
-                        onPress={() => goToAchPayScreen(item)}
-                      >
-                        <Text style={s.inlineBtnPayText}>
-                          {item.status === 'late' ? 'Pay now' : 'Pay early'}
-                        </Text>
-                      </TouchableOpacity>
-                      {canRequestExtension && (
-                        <TouchableOpacity
-                          style={[s.inlineBtn, s.inlineBtnExt]}
-                          onPress={() =>
-                            navigation.navigate('RequestExtension', {
-                              paymentId: item.id,
-                              iouId: iouId!,
-                              scheduledAt: item.due,
-                              paymentAmount: item.amount_cents,
-                              title: iou?.title,
-                            })
-                          }
-                        >
-                          <Text style={s.inlineBtnExtText}>Request extension</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    <TouchableOpacity
-                      style={[s.inlineBtn, s.inlineBtnManual, { marginTop: 6, alignSelf: 'flex-start' }]}
-                      onPress={() => goToManualPayScreen(item)}
-                    >
-                      <Text style={s.inlineBtnManualText}>Record manual payment</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-                {!item.paid_at && canRemind && (
-                  <Text style={s.swipeGuide}>Swipe left to send a reminder</Text>
-                )}
-                {!item.paid_at && canConfirm && (
-                  <Text style={[s.swipeGuide, isFirstConfirm ? s.swipeGuideProminentBlue : { color: BLUE }]}>
-                    Swipe left to confirm or reject
-                  </Text>
-                )}
-                {!!item.paid_at && (
-                  <Text style={[s.swipeGuide, { color: GREEN }]}>
-                    Paid {new Date(item.paid_at).toLocaleDateString()}
-                  </Text>
-                )}
+                <TouchableOpacity style={s.btnTextOnly} onPress={() => goToManualPayScreen(item)}>
+                  <Text style={s.btnTextOnlyLabel}>Record manual payment</Text>
+                </TouchableOpacity>
               </View>
+            )}
 
-              <View style={s.statusWrap}>
-                <StatusPill
-                  value={item.paid_at ? 'paid' : item.status || 'scheduled'}
-                />
-              </View>
-            </View>
+            {/* Autopay note — informational, after actions */}
+            {isOutgoingView && item.status === 'scheduled' && !item.paid_at && (
+              <Text style={s.autopayNote}>Autopay withdraws on the due date</Text>
+            )}
+
+            {/* Lender swipe hints */}
+            {!item.paid_at && canRemind && (
+              <Text style={s.swipeGuide}>Swipe left to send a reminder</Text>
+            )}
+            {!item.paid_at && canConfirm && (
+              <Text style={[s.swipeGuide, isFirstConfirm ? s.swipeGuideProminentBlue : { color: BLUE }]}>
+                Swipe left to confirm or reject
+              </Text>
+            )}
+
+            {/* Paid: receipt tap hint */}
+            {!!item.paid_at && (
+              <Text style={s.receiptHint}>Tap to view receipt</Text>
+            )}
           </View>
         </TouchableOpacity>
         </Swipeable>
@@ -1787,7 +1824,7 @@ export default function LoanDetail({ route, navigation }: any) {
             isFirstConfirm={isIncomingView && index === firstConfirmIndex}
           />
         )}
-        contentContainerStyle={{ padding: 16, paddingBottom: 96 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         ListHeaderComponent={
           <View style={s.header}>
@@ -1825,31 +1862,36 @@ export default function LoanDetail({ route, navigation }: any) {
 
             {!!nextDue && (
               <View style={s.nextDueCard}>
-                <Text style={s.nextDueLabel}>NEXT PAYMENT DUE</Text>
-                <View style={s.nextDueRow}>
-                  <Text style={s.nextDueDate}>
-                    {parseDateLocal(nextDue.due).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </Text>
-                  <Text style={s.nextDueAmt}>{currency(nextDue.amount_cents)}</Text>
-                </View>
+                <Text style={s.nextDueLabel}>Next payment</Text>
+                <Text style={s.nextDueAmt}>{currency(nextDue.amount_cents)}</Text>
+                <Text style={s.nextDueDate}>{formatDate(nextDue.due)}</Text>
+                {isOutgoingView && nextDue.status === 'scheduled' && (
+                  <Text style={s.nextDueMethod}>Autopay withdraws on the due date</Text>
+                )}
+                {isOutgoingView && nextDue.status === 'late' && (
+                  <Text style={[s.nextDueMethod, { color: '#DC2626' }]}>Overdue — payment was not collected</Text>
+                )}
+                {isOutgoingView && nextDue.status === 'processing' && (
+                  <Text style={[s.nextDueMethod, { color: BLUE }]}>ACH payment in progress</Text>
+                )}
               </View>
             )}
 
             {isIncomingView && incomingPendingCount > 0 && (
               <View style={s.pendingConfirmCard}>
-                <Text style={s.pendingConfirmTitle}>Manual payment submitted</Text>
+                <Text style={s.pendingConfirmTitle}>Manual payment received?</Text>
                 <Text style={s.pendingConfirmBody}>
                   {incomingPendingCount === 1
-                    ? 'The borrower manually submitted 1 payment outside AutoPay. Confirm once received, or reject if not.'
+                    ? 'The borrower manually submitted 1 payment outside AutoPay. Confirm once received, or reject if you did not.'
                     : `The borrower manually submitted ${incomingPendingCount} payments outside AutoPay. Swipe left on each row to confirm or reject.`}
                 </Text>
               </View>
             )}
 
             <View style={s.scheduleHeaderRow}>
-              <Text style={s.scheduleLabel}>Payment Schedule</Text>
-              <TouchableOpacity onPress={openFullLoan}>
-                <Text style={s.contractLinkText}>Contract →</Text>
+              <Text style={s.scheduleLabel}>Payment schedule</Text>
+              <TouchableOpacity style={s.contractBtn} onPress={openFullLoan} activeOpacity={0.8}>
+                <Text style={s.contractBtnText}>Contract</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1909,16 +1951,10 @@ export default function LoanDetail({ route, navigation }: any) {
 // ---------------------------------------------
 
 const s = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  header: { marginBottom: 12 },
 
-  header: {
-    marginBottom: 12,
-  },
-
+  // ── Borrower card ─────────────────────────────────────────────────────────────
   borrowerCard: {
     marginTop: 12,
     backgroundColor: '#fff',
@@ -1926,414 +1962,189 @@ const s = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
+  borrowerCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  borrowerCardTitle: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.4 },
+  borrowerCardLink: { color: BLUE, fontWeight: '700', fontSize: 13 },
+  borrowerNameText: { marginTop: 8, color: '#111827', fontSize: 16, fontWeight: '800' },
+  borrowerScoreLine: { fontSize: 30, fontWeight: '900', color: GREEN, marginTop: 6 },
+  borrowerScoreMeta: { fontSize: 15, fontWeight: '700', color: '#6B7280' },
+  streakText: { marginTop: 6, color: '#374151', fontSize: 13, fontWeight: '500' },
 
-  borrowerCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  // ── Progress fill ─────────────────────────────────────────────────────────────
+  progressFill: { height: '100%', borderRadius: 999, backgroundColor: GREEN },
 
-  borrowerCardTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#777',
-    textTransform: 'uppercase',
-  },
-
-  borrowerCardLink: {
-    color: BLUE,
-    fontWeight: '800',
-    fontSize: 13,
-  },
-
-  borrowerNameText: {
-    marginTop: 8,
-    color: '#111827',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-
-  borrowerScoreLine: {
-    fontSize: 30,
-    fontWeight: '900',
-    color: GREEN,
-    marginTop: 6,
-  },
-
-  borrowerScoreMeta: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#667085',
-  },
-
-  streakText: {
-    marginTop: 6,
-    color: '#4D4D4D',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  progressFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: GREEN,
-  },
-
+  // ── Footer reward card ────────────────────────────────────────────────────────
   rewardCard: {
-    marginTop: 14,
-    backgroundColor: '#F1FFF1',
+    marginTop: 12,
+    backgroundColor: '#F9FAFB',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#D8EFD8',
+    borderColor: '#E5E7EB',
   },
+  rewardText: { color: '#374151', lineHeight: 20, fontSize: 13, fontWeight: '500' },
 
-  rewardText: {
-    color: '#2E7D32',
-    lineHeight: 20,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
+  // ── Payment row card ──────────────────────────────────────────────────────────
   payRow: {
     padding: 16,
     borderRadius: 14,
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E9E9E9',
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
+  payRowDone: { backgroundColor: '#F9FAFB', shadowOpacity: 0, elevation: 0 },
+  rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  paymentIndexText: { fontSize: 11, fontWeight: '600', color: '#6B7280' },
+  amountText: { fontSize: 22, fontWeight: '800', color: '#111827' },
+  amountTextDone: { color: '#374151' },
+  dueText: { color: '#6B7280', marginTop: 3, fontSize: 14, fontWeight: '500' },
+  paidDateText: { marginTop: 3, fontSize: 13, fontWeight: '500', color: '#16a34a' },
+  rewardPreviewText: { marginTop: 8, color: '#4B5563', fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  receiptHint: { marginTop: 8, fontSize: 12, fontWeight: '500', color: '#9CA3AF' },
+  swipeGuide: { color: '#6B7280', marginTop: 10, fontSize: 12, fontWeight: '600' },
 
-  rowTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
+  pill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  pillTxt: { fontSize: 12, fontWeight: '700' },
 
-  paymentIndexText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#9CA3AF',
-    marginBottom: 2,
-  },
-
-  amountText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#111',
-  },
-
-  dueText: {
-    color: '#6B7280',
-    marginTop: 4,
-    fontSize: 14,
-  },
-
-  rewardPreviewText: {
-    marginTop: 8,
-    color: '#2E7D32',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-
-  swipeGuide: {
-    color: '#7A7A7A',
-    marginTop: 10,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-
-  statusWrap: {
-    alignItems: 'flex-end',
-  },
-
-  pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-
-  pillTxt: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#111',
-  },
-
-  leftActionExtension: {
-    width: 150,
-    marginVertical: 2,
-    marginLeft: 4,
-    borderRadius: 18,
-    backgroundColor: ORANGE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  leftActionText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 16,
-  },
-
-  rightActionPay: {
-    width: 150,
-    marginVertical: 2,
-    marginRight: 4,
-    borderRadius: 18,
-    backgroundColor: GREEN,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  rightActionRemind: {
-    width: 150,
-    marginVertical: 2,
-    marginRight: 4,
-    borderRadius: 18,
-    backgroundColor: ORANGE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  rightActionConfirm: {
-    width: 150,
-    marginVertical: 2,
-    marginRight: 4,
-    borderRadius: 18,
-    backgroundColor: BLUE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  rightActionText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 16,
-  },
-
-  emptyWrap: {
-    padding: 20,
-    alignItems: 'center',
-  },
-
-  emptyText: {
-    color: '#777',
-  },
-
-  extensionStatusPill: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    backgroundColor: '#FEF3C7',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-
-  extensionApprovedPill: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
-  },
-
-  extensionDeniedPill: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-  },
-
-  extensionStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#92400E',
-  },
-
-  extensionRequestCard: {
-    marginTop: 12,
-    backgroundColor: '#FFFBEB',
+  // ── Action buttons ────────────────────────────────────────────────────────────
+  actionArea: { marginTop: 14 },
+  btnPrimary: { backgroundColor: GREEN, borderRadius: 10, paddingVertical: 13, alignItems: 'center' },
+  btnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  btnSecondary: {
     borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-
-  extensionRequestLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#92400E',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 4,
-  },
-
-  extensionRequestDate: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 10,
-  },
-
-  extensionActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-
-  extensionApproveBtn: {
-    flex: 1,
-    backgroundColor: '#1B5E20',
-    borderRadius: 8,
-    paddingVertical: 10,
+    paddingVertical: 11,
     alignItems: 'center',
-  },
-
-  extensionApproveTxt: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-
-  extensionDenyBtn: {
-    flex: 1,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-
-  extensionDenyTxt: {
-    color: '#B42318',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-
-  dirBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginBottom: 10,
-  },
-  dirBadgeIn: { backgroundColor: '#DDEEDD' },
-  dirBadgeOut: { backgroundColor: '#F7DDDD' },
-  dirBadgeText: { fontSize: 11, fontWeight: '800', color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 },
-
-  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#E5E7EB' },
-  statItem: { flex: 1, alignItems: 'center' },
-  statLabel: { fontSize: 10, fontWeight: '800', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 },
-  statAmt: { fontSize: 18, fontWeight: '900', color: '#111827' },
-  statSep: { width: 1, height: 30, backgroundColor: '#E5E7EB' },
-
-  progressBarRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  progressTrackCompact: { flex: 1, height: 8, borderRadius: 999, backgroundColor: '#EAEAEA', overflow: 'hidden' },
-  progressPctText: { fontSize: 13, fontWeight: '800', color: GREEN, width: 36, textAlign: 'right' },
-  progressSubCompact: { marginTop: 4, color: '#6B7280', fontSize: 12, fontWeight: '600' },
-
-  nextDueCard: { marginTop: 12, backgroundColor: '#F0FDF4', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#BBF7D0' },
-  nextDueLabel: { fontSize: 10, fontWeight: '800', color: '#15803D', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
-  nextDueRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  nextDueDate: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  nextDueAmt: { fontSize: 15, fontWeight: '900', color: GREEN },
-
-  scheduleHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, marginBottom: 4 },
-  scheduleLabel: { fontSize: 14, fontWeight: '900', color: '#111827', textTransform: 'uppercase', letterSpacing: 0.3 },
-  contractLinkText: { fontSize: 13, fontWeight: '700', color: BLUE },
-
-  footer: { paddingTop: 16, paddingBottom: 40 },
-  swipeGuideProminentBlue: { color: BLUE, fontWeight: '800', fontSize: 14 },
-
-  pendingConfirmCard: {
-    marginTop: 12,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  pendingConfirmTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#1D4ED8',
-    marginBottom: 4,
-  },
-  pendingConfirmBody: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1E40AF',
-    lineHeight: 20,
-  },
-  autopayNote: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#16a34a',
-  },
-  processingNote: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: '700',
-    color: BLUE,
-  },
-  pendingConfirmNote: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#3B82F6',
-  },
-  devConfirmBtn: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
-    backgroundColor: '#1C1C1E',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  devConfirmBtnText: {
-    color: '#FFD60A',
-    fontWeight: '800',
-    fontSize: 13,
-  },
-
-  inlineActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-  },
-  inlineBtn: {
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inlineBtnPay: {
-    backgroundColor: GREEN,
-  },
-  inlineBtnPayText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  inlineBtnExt: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  inlineBtnExtText: {
-    color: '#92400E',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  inlineBtnManual: {
-    backgroundColor: '#F3F4F6',
+    marginTop: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
   },
-  inlineBtnManualText: {
-    color: '#374151',
-    fontWeight: '700',
-    fontSize: 13,
+  btnSecondaryText: { color: '#374151', fontWeight: '700', fontSize: 14 },
+  btnTextOnly: { paddingVertical: 8, alignItems: 'center', marginTop: 4 },
+  btnTextOnlyLabel: { color: '#6B7280', fontWeight: '600', fontSize: 13 },
+
+  // ── Swipe actions ─────────────────────────────────────────────────────────────
+  leftActionExtension: {
+    width: 150, marginVertical: 2, marginLeft: 4, borderRadius: 18,
+    backgroundColor: ORANGE, justifyContent: 'center', alignItems: 'center',
   },
+  leftActionText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  rightActionPay: {
+    width: 150, marginVertical: 2, marginRight: 4, borderRadius: 18,
+    backgroundColor: GREEN, justifyContent: 'center', alignItems: 'center',
+  },
+  rightActionRemind: {
+    width: 150, marginVertical: 2, marginRight: 4, borderRadius: 18,
+    backgroundColor: ORANGE, justifyContent: 'center', alignItems: 'center',
+  },
+  rightActionConfirm: {
+    width: 150, marginVertical: 2, marginRight: 4, borderRadius: 18,
+    backgroundColor: BLUE, justifyContent: 'center', alignItems: 'center',
+  },
+  rightActionText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  // ── Empty state ───────────────────────────────────────────────────────────────
+  emptyWrap: { padding: 20, alignItems: 'center' },
+  emptyText: { color: '#6B7280', fontSize: 14 },
+
+  // ── Extension status ──────────────────────────────────────────────────────────
+  extensionStatusPill: {
+    marginTop: 8, alignSelf: 'flex-start', backgroundColor: '#FEF3C7',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#FDE68A',
+  },
+  extensionApprovedPill: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+  extensionDeniedPill: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  extensionStatusText: { fontSize: 12, fontWeight: '600', color: '#92400E' },
+  extensionRequestCard: {
+    marginTop: 12, backgroundColor: '#FFFBEB', borderRadius: 10,
+    padding: 12, borderWidth: 1, borderColor: '#FDE68A',
+  },
+  extensionRequestLabel: { fontSize: 11, fontWeight: '700', color: '#92400E', marginBottom: 4 },
+  extensionRequestDate: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 10 },
+  extensionActions: { flexDirection: 'row', gap: 8 },
+  extensionApproveBtn: { flex: 1, backgroundColor: '#1B5E20', borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
+  extensionApproveTxt: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  extensionDenyBtn: {
+    flex: 1, backgroundColor: '#FEF2F2', borderRadius: 8, paddingVertical: 10,
+    alignItems: 'center', borderWidth: 1, borderColor: '#FECACA',
+  },
+  extensionDenyTxt: { color: '#B42318', fontWeight: '800', fontSize: 14 },
+
+  // ── Direction badge ───────────────────────────────────────────────────────────
+  dirBadge: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 12 },
+  dirBadgeIn: { backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#BBF7D0' },
+  dirBadgeOut: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA' },
+  dirBadgeText: { fontSize: 11, fontWeight: '700', color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 },
+
+  // ── Stats row ─────────────────────────────────────────────────────────────────
+  statsRow: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1,
+  },
+  statItem: { flex: 1, alignItems: 'center' },
+  statLabel: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 },
+  statAmt: { fontSize: 17, fontWeight: '900', color: '#111827' },
+  statSep: { width: 1, height: 30, backgroundColor: '#E5E7EB' },
+
+  // ── Progress bar ──────────────────────────────────────────────────────────────
+  progressBarRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
+  progressTrackCompact: { flex: 1, height: 8, borderRadius: 999, backgroundColor: '#EAEAEA', overflow: 'hidden' },
+  progressPctText: { fontSize: 13, fontWeight: '800', color: GREEN, width: 36, textAlign: 'right' },
+  progressSubCompact: { marginTop: 5, color: '#6B7280', fontSize: 12, fontWeight: '600' },
+
+  // ── Next payment card ─────────────────────────────────────────────────────────
+  nextDueCard: {
+    marginTop: 14, backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: '#BBF7D0',
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+  },
+  nextDueLabel: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 },
+  nextDueAmt: { fontSize: 28, fontWeight: '900', color: '#111827', letterSpacing: -0.5 },
+  nextDueDate: { fontSize: 14, fontWeight: '500', color: '#6B7280', marginTop: 3 },
+  nextDueMethod: { fontSize: 13, fontWeight: '500', color: '#6B7280', marginTop: 8 },
+  // ── Schedule header ───────────────────────────────────────────────────────────
+  scheduleHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 22, marginBottom: 8 },
+  scheduleLabel: { fontSize: 15, fontWeight: '800', color: '#111827' },
+  contractBtn: {
+    backgroundColor: '#EFF6FF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: '#DBEAFE',
+  },
+  contractBtnText: { fontSize: 13, fontWeight: '700', color: BLUE },
+
+  // ── Footer ───────────────────────────────────────────────────────────────────
+  footer: { paddingTop: 16, paddingBottom: 24 },
+  swipeGuideProminentBlue: { color: BLUE, fontWeight: '700', fontSize: 13 },
+
+  // ── Pending confirm card ──────────────────────────────────────────────────────
+  pendingConfirmCard: {
+    marginTop: 12, backgroundColor: '#EFF6FF', borderRadius: 12,
+    padding: 14, borderWidth: 1, borderColor: '#BFDBFE',
+  },
+  pendingConfirmTitle: { fontSize: 14, fontWeight: '800', color: '#1D4ED8', marginBottom: 4 },
+  pendingConfirmBody: { fontSize: 13, fontWeight: '500', color: '#1E40AF', lineHeight: 20 },
+
+  // ── State notes ───────────────────────────────────────────────────────────────
+  autopayNote: { marginTop: 8, fontSize: 12, fontWeight: '500', color: '#6B7280' },
+  processingNote: { marginTop: 6, fontSize: 13, fontWeight: '600', color: BLUE },
+  pendingConfirmNote: { marginTop: 6, fontSize: 13, fontWeight: '600', color: '#3B82F6' },
+
+  // ── DEV confirm button ────────────────────────────────────────────────────────
+  devConfirmBtn: {
+    marginTop: 10, alignSelf: 'flex-start', backgroundColor: '#1C1C1E',
+    borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
+  },
+  devConfirmBtnText: { color: '#FFD60A', fontWeight: '800', fontSize: 13 },
 });
