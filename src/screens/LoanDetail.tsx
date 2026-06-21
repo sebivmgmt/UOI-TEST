@@ -135,154 +135,263 @@ const parseDateLocal = (dateStr: string): Date => {
 const sv = StyleSheet.create({
   card: {
     marginTop: 14,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#fff',
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#312E81',
+    borderColor: '#E5E7EB',
   },
-  cardHeader: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  cardLabel: {
-    fontSize: 11,
+  headerTitle: {
+    fontSize: 13,
     fontWeight: '800',
-    color: '#818CF8',
-    textTransform: 'uppercase',
+    color: '#374151',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  devBadge: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  devBadgeText: {
+    color: '#FFD60A',
+    fontSize: 10,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
   refreshBtn: {
-    backgroundColor: '#1E1B4B',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#4338CA',
+    borderColor: '#E5E7EB',
   },
   refreshBtnText: {
-    color: '#818CF8',
+    color: '#374151',
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 20,
   },
   stateRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 4,
+    paddingVertical: 8,
   },
   stateText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    marginTop: 4,
+    color: '#6B7280',
+    fontSize: 14,
   },
-  errorBox: {
-    marginTop: 6,
-    backgroundColor: '#1C0A0A',
+  unavailableBox: {
+    backgroundColor: '#FEF2F2',
     borderRadius: 8,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#7F1D1D',
+    borderColor: '#FECACA',
   },
-  errorText: {
-    color: '#FCA5A5',
-    fontSize: 12,
+  unavailableText: {
+    color: '#991B1B',
+    fontSize: 13,
     fontWeight: '600',
-    lineHeight: 18,
+    lineHeight: 19,
   },
-  modelVer: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748B',
-    marginBottom: 8,
-  },
-  section: {
-    marginTop: 10,
+  divider: {
+    height: 1,
+    backgroundColor: '#F3F4F6',
+    marginVertical: 16,
   },
   sectionLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#64748B',
+    color: '#9CA3AF',
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 4,
+    letterSpacing: 0.6,
+    marginBottom: 6,
   },
-  sectionValue: {
+  // Hero — current score effect
+  heroValue: {
+    fontSize: 56,
+    fontWeight: '900',
+    letterSpacing: -1.5,
+    lineHeight: 60,
+    marginBottom: 6,
+  },
+  heroCaption: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  // Repayment
+  repayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 10,
+  },
+  repayAmount: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  repayPct: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#9CA3AF',
+  },
+  bar: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#EAEAEA',
+    overflow: 'hidden',
+  },
+  barFillGreen: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: GREEN,
+  },
+  miniBar: {
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: '#EAEAEA',
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  barFillBlue: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: BLUE,
+  },
+  // Pending progress section
+  pendingSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  lockedChip: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  lockedChipText: {
+    color: '#C2410C',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  unlockedChip: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  unlockedChipText: {
+    color: '#15803D',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  metricLine: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#E2E8F0',
+    color: '#111827',
+    marginBottom: 2,
   },
-  dimText: {
+  earlyBonusLine: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: '#374151',
+    marginBottom: 2,
   },
-  metaRow: {
+  pendingNote: {
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    lineHeight: 18,
+  },
+  // Projected at completion
+  projectedValue: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#111827',
+    letterSpacing: -0.5,
+    marginBottom: 4,
+  },
+  projectedNote: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA3AF',
+    lineHeight: 18,
+  },
+  // Active penalty
+  penaltyBlock: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  metaLabel: {
+  penaltyLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#94A3B8',
-    flex: 1,
-    paddingRight: 8,
+    fontWeight: '700',
+    color: '#991B1B',
   },
-  metaValue: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#E2E8F0',
-  },
-  noteText: {
+  penaltyNote: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#475569',
+    fontWeight: '500',
+    color: '#9CA3AF',
     marginTop: 2,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#1E293B',
-    marginVertical: 10,
+  penaltyValue: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#DC2626',
   },
-  statusRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-    marginTop: 4,
+  // Technical details
+  techToggle: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
   },
-  badge: {
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  badgeGreen: {
-    backgroundColor: '#052E16',
-    borderWidth: 1,
-    borderColor: '#166534',
-  },
-  badgeGray: {
-    backgroundColor: '#0F172A',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#CBD5E1',
-  },
-  unlockText: {
-    marginTop: 8,
+  techToggleText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#94A3B8',
-    lineHeight: 18,
-    fontStyle: 'italic',
+    color: '#9CA3AF',
   },
-  positive: { color: '#86EFAC' },
-  negative: { color: '#FCA5A5' },
+  techBox: {
+    marginTop: 8,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 10,
+    gap: 3,
+  },
+  techLine: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6B7280',
+    lineHeight: 17,
+  },
 });
 
 function ScoreV22DevCard({
@@ -296,119 +405,221 @@ function ScoreV22DevCard({
   error: string | null;
   onRefresh: () => void;
 }) {
-  const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
+  const [techOpen, setTechOpen] = useState(false);
+
+  const repayPct = data ? Math.min(100, Math.round(data.repayment_fraction * 100)) : 0;
+  const completionPct =
+    data && data.completion_reward_max > 0
+      ? Math.min(100, Math.round((data.completion_progress_points / data.completion_reward_max) * 100))
+      : 0;
+  const earlyPct =
+    data && data.early_bonus_max > 0
+      ? Math.min(100, Math.round((data.early_bonus_earned / data.early_bonus_max) * 100))
+      : 0;
+
+  const effectColor =
+    !data || data.current_public_score_effect === 0
+      ? '#6B7280'
+      : data.current_public_score_effect < 0
+        ? '#DC2626'
+        : GREEN;
+
+  const heroCaption = !data
+    ? ''
+    : (() => {
+        const parts: string[] = [];
+        if (data.active_penalties > 0) {
+          parts.push('An active penalty is affecting your score now.');
+        }
+        if (!data.positive_points_unlocked) {
+          if (data.pending_positive_points > 0) {
+            parts.push(
+              `${data.pending_positive_points} positive points are pending until this IOU is completed.`
+            );
+          } else {
+            parts.push(
+              data.positive_points_unlock_condition ||
+                'Positive points are pending until this IOU is completed.'
+            );
+          }
+        } else if (data.active_penalties === 0) {
+          parts.push('Positive points from this IOU are contributing to your score.');
+        }
+        return parts.join(' ');
+      })();
 
   return (
     <View style={sv.card}>
-      <View style={sv.cardHeader}>
-        <Text style={sv.cardLabel}>DEV — Score v2.2 Progress</Text>
-        <TouchableOpacity onPress={onRefresh} style={sv.refreshBtn} activeOpacity={0.7}>
-          <Text style={sv.refreshBtnText}>Refresh</Text>
-        </TouchableOpacity>
+
+      {/* Header */}
+      <View style={sv.header}>
+        <Text style={sv.headerTitle}>IOU Score Progress</Text>
+        <View style={sv.headerRight}>
+          <View style={sv.devBadge}>
+            <Text style={sv.devBadgeText}>DEV</Text>
+          </View>
+          <TouchableOpacity
+            onPress={onRefresh}
+            style={sv.refreshBtn}
+            activeOpacity={loading ? 1 : 0.7}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh score progress"
+          >
+            <Text style={[sv.refreshBtnText, loading ? { opacity: 0.35 } : undefined]}>↻</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
+      {/* Loading */}
       {loading && (
         <View style={sv.stateRow}>
-          <ActivityIndicator size="small" color="#818CF8" />
+          <ActivityIndicator size="small" color={BLUE} />
           <Text style={sv.stateText}>Loading…</Text>
         </View>
       )}
 
+      {/* Unavailable */}
       {!loading && !!error && (
-        <View style={sv.errorBox}>
-          <Text style={sv.errorText}>{error}</Text>
+        <View style={sv.unavailableBox}>
+          <Text style={sv.unavailableText}>{error}</Text>
         </View>
       )}
 
+      {/* Empty */}
       {!loading && !error && !data && (
-        <Text style={sv.stateText}>No score v2.2 data.</Text>
+        <Text style={sv.stateText}>Score progress is unavailable for this IOU.</Text>
       )}
 
+      {/* Success */}
       {!loading && !error && !!data && (
         <View>
-          <Text style={sv.modelVer}>{data.model_version}</Text>
 
-          <View style={sv.section}>
-            <Text style={sv.sectionLabel}>Repayment</Text>
-            <Text style={sv.sectionValue}>
-              {currency(data.paid_cents)} / {currency(data.principal_cents)}
-              {'  '}
-              <Text style={sv.dimText}>{pct(data.repayment_fraction)}</Text>
+          {/* 1. Current score effect — hero */}
+          <Text style={sv.sectionLabel}>Current score effect</Text>
+          <Text style={[sv.heroValue, { color: effectColor }]}>
+            {data.current_public_score_effect > 0 ? '+' : ''}
+            {data.current_public_score_effect}
+          </Text>
+          <Text style={sv.heroCaption}>{heroCaption}</Text>
+
+          <View style={sv.divider} />
+
+          {/* 2. Repayment progress */}
+          <Text style={sv.sectionLabel}>Repayment</Text>
+          <View style={sv.repayRow}>
+            <Text style={sv.repayAmount}>
+              {currency(data.paid_cents)} of {currency(data.principal_cents)}
             </Text>
+            <Text style={sv.repayPct}>{repayPct}%</Text>
           </View>
-
-          <View style={sv.section}>
-            <View style={sv.metaRow}>
-              <Text style={sv.metaLabel}>Completion progress</Text>
-              <Text style={sv.metaValue}>
-                {data.completion_progress_points} / {data.completion_reward_max} pts
-              </Text>
-            </View>
-            <View style={[sv.metaRow, { marginTop: 6 }]}>
-              <Text style={sv.metaLabel}>Early bonus</Text>
-              <Text style={sv.metaValue}>
-                {data.early_bonus_earned} / {data.early_bonus_max} pts
-              </Text>
-            </View>
+          <View style={sv.bar}>
+            <View style={[sv.barFillGreen, { width: `${repayPct}%` }]} />
           </View>
 
           <View style={sv.divider} />
 
-          <View style={sv.section}>
-            <View style={sv.metaRow}>
-              <Text style={sv.metaLabel}>Pending positive points</Text>
-              <Text style={[sv.metaValue, sv.positive]}>
-                +{data.pending_positive_points}
-              </Text>
-            </View>
-            <Text style={sv.noteText}>Not public yet — unlocks on completion</Text>
-
-            <View style={[sv.metaRow, { marginTop: 8 }]}>
-              <Text style={sv.metaLabel}>Active penalties</Text>
-              <Text style={[sv.metaValue, sv.negative]}>
-                {data.active_penalties > 0 ? `−${data.active_penalties}` : '0'}
-              </Text>
-            </View>
-            <Text style={sv.noteText}>Applies to public score now</Text>
-
-            <View style={[sv.metaRow, { marginTop: 8 }]}>
-              <Text style={sv.metaLabel}>Current public score effect</Text>
-              <Text style={[sv.metaValue, data.current_public_score_effect < 0 ? sv.negative : sv.positive]}>
-                {data.current_public_score_effect > 0 ? '+' : ''}{data.current_public_score_effect}
+          {/* 3. Pending / completed score progress */}
+          <View style={sv.pendingSectionHeader}>
+            <Text style={[sv.sectionLabel, { marginBottom: 0 }]}>
+              {data.positive_points_unlocked ? 'Score progress' : 'Pending progress'}
+            </Text>
+            <View style={data.positive_points_unlocked ? sv.unlockedChip : sv.lockedChip}>
+              <Text style={data.positive_points_unlocked ? sv.unlockedChipText : sv.lockedChipText}>
+                {data.positive_points_unlocked ? 'Unlocked' : 'Locked'}
               </Text>
             </View>
           </View>
 
-          <View style={sv.divider} />
-
-          <View style={sv.section}>
-            <View style={sv.metaRow}>
-              <Text style={sv.metaLabel}>Projected contribution (at completion)</Text>
-              <Text style={[sv.metaValue, data.projected_completed_contribution >= 0 ? sv.positive : sv.negative]}>
-                {data.projected_completed_contribution > 0 ? '+' : ''}{data.projected_completed_contribution}
-              </Text>
-            </View>
-            <Text style={sv.noteText}>Not awarded yet</Text>
+          <Text style={sv.metricLine}>
+            {data.completion_progress_points} of {data.completion_reward_max} completion points
+            {!data.positive_points_unlocked ? ' progressing' : ''}
+          </Text>
+          <View style={sv.miniBar}>
+            <View style={[sv.barFillBlue, { width: `${completionPct}%` }]} />
           </View>
 
-          <View style={sv.divider} />
-
-          <View style={sv.statusRow}>
-            <View style={[sv.badge, data.agreement_completed ? sv.badgeGreen : sv.badgeGray]}>
-              <Text style={sv.badgeText}>
-                {data.agreement_completed ? 'Completed' : 'In progress'}
+          {data.early_bonus_max > 0 && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={sv.earlyBonusLine}>
+                {data.early_bonus_earned} of {data.early_bonus_max} early-payment bonus
               </Text>
+              <View style={sv.miniBar}>
+                <View style={[sv.barFillBlue, { width: `${earlyPct}%` }]} />
+              </View>
             </View>
-            <View style={[sv.badge, data.positive_points_unlocked ? sv.badgeGreen : sv.badgeGray]}>
-              <Text style={sv.badgeText}>
-                {data.positive_points_unlocked ? 'Points unlocked' : 'Points locked'}
-              </Text>
-            </View>
-          </View>
-
-          {!!data.positive_points_unlock_condition && (
-            <Text style={sv.unlockText}>{data.positive_points_unlock_condition}</Text>
           )}
+
+          {!data.positive_points_unlocked && (
+            <Text style={sv.pendingNote}>
+              {data.positive_points_unlock_condition || 'Pending points unlock when this IOU is completed.'}
+            </Text>
+          )}
+
+          <View style={sv.divider} />
+
+          {/* 4. Projected / completion result */}
+          <Text style={sv.sectionLabel}>
+            {data.positive_points_unlocked ? 'Completion result' : 'Projected at completion'}
+          </Text>
+          <Text style={[
+            sv.projectedValue,
+            data.positive_points_unlocked ? { color: GREEN } : undefined,
+          ]}>
+            {data.projected_completed_contribution > 0 ? '+' : ''}
+            {data.projected_completed_contribution}
+          </Text>
+          <Text style={[
+            sv.projectedNote,
+            data.positive_points_unlocked ? { color: '#15803D' } : undefined,
+          ]}>
+            {data.positive_points_unlocked
+              ? 'Applied to your IOU Score'
+              : 'Pending until this IOU is completed'}
+          </Text>
+
+          {/* 5. Active penalty — only shown when > 0 */}
+          {data.active_penalties > 0 && (
+            <>
+              <View style={sv.divider} />
+              <View style={sv.penaltyBlock}>
+                <View>
+                  <Text style={sv.penaltyLabel}>Active penalty</Text>
+                  <Text style={sv.penaltyNote}>Applying to your score now</Text>
+                </View>
+                <Text style={sv.penaltyValue}>−{data.active_penalties}</Text>
+              </View>
+            </>
+          )}
+
+          {/* Technical details — collapsible */}
+          <TouchableOpacity
+            onPress={() => setTechOpen(o => !o)}
+            style={sv.techToggle}
+            activeOpacity={0.7}
+          >
+            <Text style={sv.techToggleText}>{techOpen ? '▾' : '▸'} Technical details</Text>
+          </TouchableOpacity>
+
+          {techOpen && (
+            <View style={sv.techBox}>
+              <Text style={sv.techLine}>model: {data.model_version}</Text>
+              <Text style={sv.techLine}>agreement: {data.score_agreement_id}</Text>
+              <Text style={sv.techLine}>
+                completion pts: {data.completion_progress_points} / {data.completion_reward_max}
+              </Text>
+              <Text style={sv.techLine}>
+                early bonus: {data.early_bonus_earned} / {data.early_bonus_max}
+              </Text>
+              <Text style={sv.techLine}>pending pts: +{data.pending_positive_points}</Text>
+              <Text style={sv.techLine}>active penalties: −{data.active_penalties}</Text>
+              <Text style={sv.techLine}>repayment: {(data.repayment_fraction * 100).toFixed(1)}%</Text>
+              <Text style={sv.techLine}>
+                completed: {String(data.agreement_completed)} · unlocked: {String(data.positive_points_unlocked)}
+              </Text>
+            </View>
+          )}
+
         </View>
       )}
     </View>
@@ -1646,7 +1857,6 @@ export default function LoanDetail({ route, navigation }: any) {
         ListFooterComponent={
           <View style={s.footer}>
             <View style={s.rewardCard}>
-              <Text style={s.rewardTitle}>Completion reward</Text>
               <Text style={s.rewardText}>{completionRewardText}</Text>
             </View>
             {isIncomingView && !!borrowerProfile && (
@@ -1709,17 +1919,6 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
 
-  h1: {
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 2,
-  },
-
-  subhead: {
-    color: '#666',
-    marginTop: 4,
-  },
-
   borrowerCard: {
     marginTop: 12,
     backgroundColor: '#fff',
@@ -1775,97 +1974,31 @@ const s = StyleSheet.create({
     fontWeight: '700',
   },
 
-  progressSection: {
-    marginTop: 14,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-
-  progressHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  progressLabel: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#444',
-    textTransform: 'uppercase',
-  },
-
-  progressValue: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: GREEN,
-  },
-
-  progressTrack: {
-    marginTop: 8,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: '#EAEAEA',
-    overflow: 'hidden',
-  },
-
   progressFill: {
     height: '100%',
     borderRadius: 999,
     backgroundColor: GREEN,
   },
 
-  progressSubtext: {
-    marginTop: 8,
-    color: '#666',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-
   rewardCard: {
     marginTop: 14,
     backgroundColor: '#F1FFF1',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#D8EFD8',
   },
 
-  rewardTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#2E7D32',
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-
   rewardText: {
-    color: '#4D4D4D',
+    color: '#2E7D32',
     lineHeight: 20,
     fontSize: 14,
     fontWeight: '600',
   },
 
-  fullLoanBtn: {
-    marginTop: 14,
-    alignSelf: 'flex-start',
-    backgroundColor: '#EEF7EE',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-
-  fullLoanBtnText: {
-    color: '#2E7D32',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-
   payRow: {
     padding: 16,
-    borderRadius: 18,
+    borderRadius: 14,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#E9E9E9',
@@ -1926,16 +2059,6 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#111',
-  },
-
-  leftAction: {
-    width: 150,
-    marginVertical: 2,
-    marginLeft: 4,
-    borderRadius: 18,
-    backgroundColor: BLUE,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 
   leftActionExtension: {
@@ -2086,7 +2209,6 @@ const s = StyleSheet.create({
     fontSize: 14,
   },
 
-  // compact header
   dirBadge: {
     alignSelf: 'flex-start',
     borderRadius: 8,
@@ -2101,7 +2223,7 @@ const s = StyleSheet.create({
   statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#E5E7EB' },
   statItem: { flex: 1, alignItems: 'center' },
   statLabel: { fontSize: 10, fontWeight: '800', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 },
-  statAmt: { fontSize: 16, fontWeight: '900', color: '#111827' },
+  statAmt: { fontSize: 18, fontWeight: '900', color: '#111827' },
   statSep: { width: 1, height: 30, backgroundColor: '#E5E7EB' },
 
   progressBarRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
@@ -2120,7 +2242,6 @@ const s = StyleSheet.create({
   contractLinkText: { fontSize: 13, fontWeight: '700', color: BLUE },
 
   footer: { paddingTop: 16, paddingBottom: 40 },
-  swipeGuideProminent: { color: '#1B5E20', fontWeight: '800', fontSize: 14 },
   swipeGuideProminentBlue: { color: BLUE, fontWeight: '800', fontSize: 14 },
 
   pendingConfirmCard: {
@@ -2175,7 +2296,6 @@ const s = StyleSheet.create({
     fontSize: 13,
   },
 
-  // ── Inline Pay / Extension action buttons ──
   inlineActionRow: {
     flexDirection: 'row',
     gap: 8,
