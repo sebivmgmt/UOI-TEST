@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Image, TouchableOpacity, View, StyleSheet } from "react-native";
-import { NavigationContainer, useNavigation } from "@react-navigation/native";
+import { ActivityIndicator, TouchableOpacity, View, StyleSheet } from "react-native";
+import { NavigationContainer, DefaultTheme, DarkTheme, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { House, Plus, Users, ShieldCheck, User } from "lucide-react-native";
+import { useAppTheme } from "./theme";
 import { supabase } from "./supabase";
 import SplashScreen from "./screens/SplashScreen";
 
@@ -244,137 +247,25 @@ function FabSpacer() {
   return null;
 }
 
-// Pure-View tab icons — no native SVG required.
-function HomeTabIcon({ color }: { color: string }) {
-  return (
-    <View style={{ alignItems: "center", justifyContent: "flex-end", height: 22 }}>
-      <View style={{ width: 0, height: 0, borderLeftWidth: 11, borderRightWidth: 11, borderBottomWidth: 9, borderLeftColor: "transparent", borderRightColor: "transparent", borderBottomColor: color }} />
-      <View style={{ width: 15, height: 10, backgroundColor: color, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 }} />
-    </View>
-  );
-}
+// Provides the computed dock clearance (pixels content must leave at the bottom)
+// to every stack navigator so they derive it from live insets rather than a hardcoded constant.
+const DockContext = React.createContext(92);
 
-
-function PeopleTabIcon({ color }: { color: string }) {
-  // Two SEBIV figures: back-left (smaller, dimmed) + front-right (primary)
-  const figure = (
-    cx: number, cy: number,
-    hdx: number, hdy: number,
-    sw: number, opacity: number
-  ) => {
-    const r = sw / 2;
-    const dx = hdx * 2;
-    const dy = hdy * 2;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    const deg = Math.atan2(dy, dx) * (180 / Math.PI);
-    const diagBase = {
-      position: "absolute" as const,
-      left: cx - len / 2,
-      top: cy - r,
-      width: len,
-      height: sw,
-      backgroundColor: color,
-      borderRadius: r,
-      opacity,
-    };
-    return (
-      <>
-        {/* Horizontal bar */}
-        <View style={{ position: "absolute", left: cx - hdx, top: cy - hdy - r, width: dx, height: sw, backgroundColor: color, borderRadius: r, opacity }} />
-        {/* \ diagonal */}
-        <View style={[diagBase, { transform: [{ rotate: `${deg}deg` }] }]} />
-        {/* / diagonal */}
-        <View style={[diagBase, { transform: [{ rotate: `${-deg}deg` }] }]} />
-      </>
-    );
-  };
-
-  return (
-    <View style={{ width: 28, height: 22 }}>
-      {/* Back figure: smaller, offset left, dimmed */}
-      {figure(8, 12, 4, 5, 1.8, 0.5)}
-      {/* Front figure: full weight, offset right */}
-      {figure(17, 11, 5, 7, 2.3, 1.0)}
-    </View>
-  );
-}
-
-// Shield shape: rounded-top rectangle + downward triangle point.
-function TrustTabIcon({ color }: { color: string }) {
-  return (
-    <View style={{ alignItems: "center", justifyContent: "flex-start", height: 22, paddingTop: 1 }}>
-      {/* Shield body — rounded on top, flat on bottom */}
-      <View style={{
-        width: 16,
-        height: 13,
-        backgroundColor: color,
-        borderTopLeftRadius: 8,
-        borderTopRightRadius: 8,
-      }} />
-      {/* Shield point — downward triangle */}
-      <View style={{
-        width: 0,
-        height: 0,
-        borderLeftWidth: 8,
-        borderRightWidth: 8,
-        borderTopWidth: 7,
-        borderLeftColor: "transparent",
-        borderRightColor: "transparent",
-        borderTopColor: color,
-      }} />
-    </View>
-  );
-}
-
-function ProfileTabIcon({ color }: { color: string }) {
-  // SEBIV logo: horizontal bar + two crossing diagonals
-  const sw = 2.5;
-  const r = sw / 2;
-  const x1 = 4, x2 = 18, y1 = 3, y2 = 19;
-  const cx = (x1 + x2) / 2;
-  const cy = (y1 + y2) / 2;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  const deg = Math.atan2(dy, dx) * (180 / Math.PI);
-  const diagBase = {
-    position: "absolute" as const,
-    left: cx - len / 2,
-    top: cy - r,
-    width: len,
-    height: sw,
-    backgroundColor: color,
-    borderRadius: r,
-  };
-  return (
-    <View style={{ width: 22, height: 22 }}>
-      {/* Horizontal top bar */}
-      <View style={{ position: "absolute", left: x1, top: y1 - r, width: dx, height: sw, backgroundColor: color, borderRadius: r }} />
-      {/* Left-to-right diagonal (\) */}
-      <View style={[diagBase, { transform: [{ rotate: `${deg}deg` }] }]} />
-      {/* Right-to-left diagonal (/) */}
-      <View style={[diagBase, { transform: [{ rotate: `${-deg}deg` }] }]} />
-    </View>
-  );
-}
-
-// FAB overlay: rendered outside Tab.Navigator so it has its own independent
-// z-index, elevation, and touch zone unconstrained by the tab bar bounds.
-function NewIouFab() {
+// FAB overlay: positioned dynamically so it stays centered on the dock on all devices.
+function NewIouFab({ dockBottom }: { dockBottom: number }) {
   const navigation = useNavigation<any>();
+  const { isDark } = useAppTheme();
   return (
-    <View style={ts.fabContainer} pointerEvents="box-none">
+    <View style={[ts.fabContainer, { bottom: dockBottom + 4 }]} pointerEvents="box-none">
       <TouchableOpacity
-        style={ts.fab}
+        style={[ts.fab, isDark && { shadowOpacity: 0, elevation: 0 }]}
         onPress={() => navigation.navigate("HomeTab", { screen: "MoneyAction" })}
         activeOpacity={0.78}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel="Create IOU"
+        accessibilityRole="button"
       >
-        <Image
-          source={require('../assets/iou-o-fab-clean.png')}
-          style={ts.fabIcon}
-          resizeMode="contain"
-        />
+        <Plus size={28} color="#fff" strokeWidth={2.5} />
       </TouchableOpacity>
     </View>
   );
@@ -385,88 +276,117 @@ function NewIouFab() {
 // The pending IOU badge lives on Home (moved from the old IOUs tab).
 function AppTabs() {
   const pendingCount = usePendingIouCount();
+  const insets = useSafeAreaInsets();
+  const theme = useAppTheme();
+
+  // Dock sits 8 pt above the home indicator (or 8 pt from the physical edge on SE).
+  const dockBottom = Math.max(8, insets.bottom + 4);
+  // Clearance scrollable content must leave at the bottom of every stack screen.
+  const dockClearance = dockBottom + 64 + 12;
+
+  const tabBarStyle = {
+    ...ts.tabBar,
+    bottom: dockBottom,
+    backgroundColor: theme.tabBarBackground,
+    ...(theme.isDark && {
+      shadowOpacity: 0 as const,
+      elevation: 0,
+      borderWidth: 1,
+      borderColor: theme.border,
+    }),
+  };
+
   return (
-    <View style={{ flex: 1 }}>
-      <Tab.Navigator
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: "#77B777",
-          tabBarInactiveTintColor: "#9E9E9E",
-          tabBarShowLabel: false,
-          tabBarStyle: ts.tabBar,
-        }}
-      >
-        <Tab.Screen
-          name="HomeTab"
-          component={HomeStack}
-          options={{
-            tabBarBadge: pendingCount > 0 ? pendingCount : undefined,
-            tabBarIcon: ({ color, focused }) => (
-              <View style={[ts.iconWrap, focused && ts.iconWrapActive]}>
-                <HomeTabIcon color={color} />
-              </View>
-            ),
+    <DockContext.Provider value={dockClearance}>
+      <View style={{ flex: 1, backgroundColor: theme.background }}>
+        <Tab.Navigator
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: theme.brandBright,
+            tabBarInactiveTintColor: theme.textMuted,
+            tabBarShowLabel: false,
+            tabBarStyle,
           }}
-        />
-        <Tab.Screen
-          name="PeopleTab"
-          component={PeopleStack}
-          options={{
-            tabBarIcon: ({ color, focused }) => (
-              <View style={[ts.iconWrap, focused && ts.iconWrapActive]}>
-                <PeopleTabIcon color={color} />
-              </View>
-            ),
-          }}
-        />
-        {/* Invisible spacer keeps left/right icon groups away from the FAB */}
-        <Tab.Screen
-          name="FabSpacer"
-          component={FabSpacer}
-          options={{
-            tabBarButton: () => <View style={ts.fabGap} />,
-          }}
-        />
-        <Tab.Screen
-          name="TrustTab"
-          component={TrustStack}
-          options={{
-            tabBarIcon: ({ color, focused }) => (
-              <View style={[ts.iconWrap, focused && ts.iconWrapActive]}>
-                <TrustTabIcon color={color} />
-              </View>
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Profile"
-          component={ProfileStack}
-          options={{
-            tabBarIcon: ({ color, focused }) => (
-              <View style={[ts.iconWrap, focused && ts.iconWrapActive]}>
-                <ProfileTabIcon color={color} />
-              </View>
-            ),
-          }}
-        />
-      </Tab.Navigator>
-      <NewIouFab />
-    </View>
+        >
+          <Tab.Screen
+            name="HomeTab"
+            component={HomeStack}
+            options={{
+              tabBarBadge: pendingCount > 0 ? pendingCount : undefined,
+              tabBarAccessibilityLabel: "Home",
+              tabBarIcon: ({ color, focused }) => (
+                <View style={[ts.iconWrap, focused && { backgroundColor: theme.activeTabSurface }]}>
+                  <House size={22} color={color} strokeWidth={focused ? 2.5 : 1.75} />
+                </View>
+              ),
+            }}
+          />
+          <Tab.Screen
+            name="PeopleTab"
+            component={PeopleStack}
+            options={{
+              tabBarAccessibilityLabel: "People",
+              tabBarIcon: ({ color, focused }) => (
+                <View style={[ts.iconWrap, focused && { backgroundColor: theme.activeTabSurface }]}>
+                  <Users size={22} color={color} strokeWidth={focused ? 2.5 : 1.75} />
+                </View>
+              ),
+            }}
+          />
+          {/* Invisible spacer keeps left/right icon groups away from the FAB */}
+          <Tab.Screen
+            name="FabSpacer"
+            component={FabSpacer}
+            options={{
+              tabBarButton: () => <View style={ts.fabGap} />,
+            }}
+          />
+          <Tab.Screen
+            name="TrustTab"
+            component={TrustStack}
+            options={{
+              tabBarAccessibilityLabel: "Trust",
+              tabBarIcon: ({ color, focused }) => (
+                <View style={[ts.iconWrap, focused && { backgroundColor: theme.activeTabSurface }]}>
+                  <ShieldCheck size={22} color={color} strokeWidth={focused ? 2.5 : 1.75} />
+                </View>
+              ),
+            }}
+          />
+          <Tab.Screen
+            name="Profile"
+            component={ProfileStack}
+            options={{
+              tabBarAccessibilityLabel: "Profile",
+              tabBarIcon: ({ color, focused }) => (
+                <View style={[ts.iconWrap, focused && { backgroundColor: theme.activeTabSurface }]}>
+                  <User size={22} color={color} strokeWidth={focused ? 2.5 : 1.75} />
+                </View>
+              ),
+            }}
+          />
+        </Tab.Navigator>
+        <NewIouFab dockBottom={dockBottom} />
+      </View>
+    </DockContext.Provider>
   );
 }
 
 // Home stack — includes IOUsList so IOUs remain reachable after removing the IOUs tab.
 function HomeStack() {
+  const dockClearance = React.useContext(DockContext);
+  const theme = useAppTheme();
   const screenOptions = {
-    headerStyle: { backgroundColor: BRAND },
-    headerTintColor: "#fff",
-    contentStyle: { backgroundColor: "#F5F7F9", paddingBottom: 92 },
-  } as const;
+    headerStyle: { backgroundColor: theme.headerBackground },
+    headerTintColor: theme.textPrimary,
+    contentStyle: { backgroundColor: theme.background, paddingBottom: dockClearance },
+    statusBarStyle: (theme.isDark ? 'light' : 'dark') as 'light' | 'dark',
+  };
 
   return (
     <ReceiptSplitProvider>
       <Stack.Navigator screenOptions={screenOptions}>
-        <Stack.Screen name="Home" component={Home} options={{ title: "Home" }} />
+        <Stack.Screen name="Home" component={Home} options={{ title: "IOU" }} />
         <Stack.Screen name="IOUsList" component={IousListScreen} options={{ title: "My IOUs" }} />
         <Stack.Screen name="Inbox" component={Inbox} options={{ title: "IOU Inbox" }} />
         <Stack.Screen name="Profile" component={Profile} options={{ title: "Profile" }} />
@@ -510,11 +430,14 @@ function HomeStack() {
 // Trust stack — root of the Trust bottom tab.
 // Step 2: promoted to a real tab. IOUsList moved to HomeStack to free this slot.
 function TrustStack() {
+  const dockClearance = React.useContext(DockContext);
+  const theme = useAppTheme();
   const screenOptions = {
-    headerStyle: { backgroundColor: BRAND },
-    headerTintColor: "#fff",
-    contentStyle: { backgroundColor: "#F5F7F9", paddingBottom: 92 },
-  } as const;
+    headerStyle: { backgroundColor: theme.headerBackground },
+    headerTintColor: theme.textPrimary,
+    contentStyle: { backgroundColor: theme.background, paddingBottom: dockClearance },
+    statusBarStyle: (theme.isDark ? 'light' : 'dark') as 'light' | 'dark',
+  };
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
@@ -529,11 +452,14 @@ function TrustStack() {
 
 // People stack — gives SearchUsersScreen a proper header and safe-area handling.
 function PeopleStack() {
+  const dockClearance = React.useContext(DockContext);
+  const theme = useAppTheme();
   const screenOptions = {
-    headerStyle: { backgroundColor: BRAND },
-    headerTintColor: "#fff",
-    contentStyle: { backgroundColor: "#F5F7F9", paddingBottom: 92 },
-  } as const;
+    headerStyle: { backgroundColor: theme.headerBackground },
+    headerTintColor: theme.textPrimary,
+    contentStyle: { backgroundColor: theme.background, paddingBottom: dockClearance },
+    statusBarStyle: (theme.isDark ? 'light' : 'dark') as 'light' | 'dark',
+  };
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
@@ -548,11 +474,14 @@ function PeopleStack() {
 // Profile stack — trust screens kept here temporarily so existing Profile
 // navigation buttons keep working while the Trust tab is being verified.
 function ProfileStack() {
+  const dockClearance = React.useContext(DockContext);
+  const theme = useAppTheme();
   const screenOptions = {
-    headerStyle: { backgroundColor: BRAND },
-    headerTintColor: "#fff",
-    contentStyle: { backgroundColor: "#F5F7F9", paddingBottom: 92 },
-  } as const;
+    headerStyle: { backgroundColor: theme.headerBackground },
+    headerTintColor: theme.textPrimary,
+    contentStyle: { backgroundColor: theme.background, paddingBottom: dockClearance },
+    statusBarStyle: (theme.isDark ? 'light' : 'dark') as 'light' | 'dark',
+  };
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
@@ -573,6 +502,7 @@ export default function Routes() {
   const [ready, setReady] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
   const [gate, setGate] = useState<GateState>("auth");
+  const { isDark } = useAppTheme();
 
   // gateRef mirrors gate so the onAuthStateChange closure (captured once on
   // mount) can read the current gate without a stale closure.
@@ -723,20 +653,28 @@ export default function Routes() {
 
   if (!ready) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: isDark ? '#000000' : '#fff' }}>
         <ActivityIndicator color={BRAND} />
       </View>
     );
   }
 
   const authScreenOptions = {
-    headerStyle: { backgroundColor: BRAND },
+    headerStyle: { backgroundColor: isDark ? '#000000' : BRAND },
     headerTintColor: "#fff",
-    contentStyle: { backgroundColor: "#fff" },
-  } as const;
+    contentStyle: { backgroundColor: isDark ? '#000000' : '#fff' },
+    // Auth screens with visible headers (dark green in light / black in dark)
+    // both need light icons. The headerless Auth/Welcome screen overrides this
+    // per-screen via navigation.setOptions in useLayoutEffect.
+    statusBarStyle: 'light' as const,
+  };
+
+  const navTheme = isDark
+    ? { ...DarkTheme, colors: { ...DarkTheme.colors, background: '#000000', card: '#000000' } }
+    : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: '#F5F7F9', card: '#FFFFFF' } };
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       {gate === "auth" ? (
         <Stack.Navigator screenOptions={authScreenOptions}>
           <Stack.Screen
@@ -796,17 +734,16 @@ export default function Routes() {
 const ts = StyleSheet.create({
   tabBar: {
     position: "absolute",
-    bottom: 20,
     left: 16,
     right: 16,
     height: 64,
     backgroundColor: "#fff",
-    borderRadius: 28,
+    borderRadius: 32,
     borderTopWidth: 0,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 8,
     paddingBottom: 0,
     paddingTop: 0,
@@ -818,37 +755,30 @@ const ts = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
-  iconWrapActive: {
-    backgroundColor: "#E8F5E9",
-  },
   // Invisible center gap: gives the two tab pairs room to breathe around the FAB.
   fabGap: {
     width: 80,
   },
+  // bottom is injected dynamically from dockBottom + 4 so the FAB center
+  // aligns with the dock's vertical midpoint on every device.
   fabContainer: {
     position: "absolute",
-    bottom: 42,
     left: 0,
     right: 0,
     alignItems: "center",
     zIndex: 99,
   },
   fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#fff",
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#1B5E20",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOpacity: 0.14,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 10,
-  },
-  fabIcon: {
-    width: 44,
-    height: 44,
-    tintColor: "#1B5E20",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
   },
 });

@@ -11,13 +11,10 @@ import {
   ScrollView,
 } from "react-native";
 import { supabase } from "../supabase";
+import { useColorSchemeCtx, useAppTheme, AppTheme, Preference } from "../theme";
 
-const GREEN = "#77B777";
-const GREEN_DARK = "#5F9F5F";
 const RED = "#D9534F";
 const BLUE = "#3B82F6";
-const BG = "#F5F7F9";
-const AMBER = "#B7791F";
 
 type ProfileRow = {
   id: string;
@@ -38,6 +35,9 @@ type ProfileRow = {
 };
 
 export default function Profile({ navigation }: any) {
+  const theme = useAppTheme();
+  const s = useMemo(() => makeS(theme), [theme]);
+  const { preference, setPreference } = useColorSchemeCtx();
   const [meId, setMeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -315,8 +315,8 @@ export default function Profile({ navigation }: any) {
       return {
         label: "Identity Verified",
         shortLabel: "Verified",
-        bg: "#EAF8EA",
-        color: GREEN,
+        bg: theme.positiveSurface,
+        color: theme.positive,
         description:
           "Your identity is verified and ready for compliant money movement.",
       };
@@ -326,8 +326,8 @@ export default function Profile({ navigation }: any) {
       return {
         label: "Identity Pending",
         shortLabel: "Pending",
-        bg: "#FFF7E6",
-        color: AMBER,
+        bg: theme.warningSurface,
+        color: theme.warning,
         description:
           "Your identity has been submitted and is waiting on review.",
       };
@@ -337,8 +337,8 @@ export default function Profile({ navigation }: any) {
       return {
         label: "Identity Needs Action",
         shortLabel: "Needs action",
-        bg: "#FDECEC",
-        color: RED,
+        bg: theme.negativeSurface,
+        color: theme.negative,
         description:
           "More information may be needed before money movement can go live.",
       };
@@ -347,12 +347,12 @@ export default function Profile({ navigation }: any) {
     return {
       label: "Identity Unverified",
       shortLabel: "Unverified",
-      bg: "#FDECEC",
-      color: RED,
+      bg: theme.negativeSurface,
+      color: theme.negative,
       description:
         "Verify your identity before enabling live ACH and compliance flows.",
     };
-  }, [normalizedIdentityStatus]);
+  }, [normalizedIdentityStatus, theme]);
 
   const completionChecks = useMemo(() => {
     const items = [
@@ -382,7 +382,7 @@ export default function Profile({ navigation }: any) {
   if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator />
+        <ActivityIndicator color={theme.textMuted} />
       </View>
     );
   }
@@ -390,7 +390,7 @@ export default function Profile({ navigation }: any) {
   if (!row) {
     return (
       <View style={s.center}>
-        <Text>Not signed in.</Text>
+        <Text style={{ color: theme.textSecondary }}>Not signed in.</Text>
       </View>
     );
   }
@@ -413,13 +413,13 @@ export default function Profile({ navigation }: any) {
           <View
             style={[
               s.statusPill,
-              { backgroundColor: row.phone_verified ? "#EAF8EA" : "#FDECEC" },
+              { backgroundColor: row.phone_verified ? theme.positiveSurface : theme.negativeSurface },
             ]}
           >
             <Text
               style={[
                 s.statusPillText,
-                { color: row.phone_verified ? GREEN : RED },
+                { color: row.phone_verified ? theme.positive : theme.negative },
               ]}
             >
               {row.phone_verified ? "Phone Verified" : "Phone Unverified"}
@@ -432,8 +432,8 @@ export default function Profile({ navigation }: any) {
             </Text>
           </View>
 
-          <View style={[s.statusPill, { backgroundColor: "#EEF4FF" }]}>
-            <Text style={[s.statusPillText, { color: BLUE }]}>
+          <View style={[s.statusPill, { backgroundColor: theme.infoSurface }]}>
+            <Text style={[s.statusPillText, { color: theme.info }]}>
               {completionChecks.percent}% complete
             </Text>
           </View>
@@ -450,6 +450,7 @@ export default function Profile({ navigation }: any) {
           value={fullName}
           onChangeText={setFullName}
           placeholder="Your name"
+          placeholderTextColor={theme.textMuted}
         />
 
         <Text style={s.label}>Email</Text>
@@ -458,7 +459,7 @@ export default function Profile({ navigation }: any) {
         <Text style={s.label}>Phone</Text>
         <View style={s.rowBetween}>
           <Text style={s.value}>{row.phone ?? "Not set"}</Text>
-          <Text style={{ fontWeight: "800", color: row.phone_verified ? GREEN : RED }}>
+          <Text style={{ fontWeight: "800", color: row.phone_verified ? theme.positive : theme.negative }}>
             {row.phone_verified ? "Verified" : "Unverified"}
           </Text>
         </View>
@@ -495,7 +496,7 @@ export default function Profile({ navigation }: any) {
             s.btn,
             {
               backgroundColor:
-                normalizedIdentityStatus === "verified" ? GREEN_DARK : GREEN,
+                normalizedIdentityStatus === "verified" ? theme.brand : theme.brandBright,
             },
           ]}
           onPress={() => navigation.navigate("VerifyIdentity")}
@@ -519,13 +520,13 @@ export default function Profile({ navigation }: any) {
           <View
             style={[
               s.statusPill,
-              { backgroundColor: row.ach_status === "ready" ? "#EAF8EA" : "#FDECEC" },
+              { backgroundColor: row.ach_status === "ready" ? theme.positiveSurface : theme.negativeSurface },
             ]}
           >
             <Text
               style={[
                 s.statusPillText,
-                { color: row.ach_status === "ready" ? GREEN : RED },
+                { color: row.ach_status === "ready" ? theme.positive : theme.negative },
               ]}
             >
               {row.ach_status === "ready" ? "Ready" : "Not linked"}
@@ -547,7 +548,7 @@ export default function Profile({ navigation }: any) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[s.btn, { backgroundColor: GREEN }]}
+          style={[s.btn, { backgroundColor: theme.brand }]}
           onPress={save}
           disabled={saving}
         >
@@ -575,7 +576,7 @@ export default function Profile({ navigation }: any) {
               <Text
                 style={[
                   s.checkText,
-                  item.done && { color: "#222", fontWeight: "700" },
+                  item.done && { color: theme.textPrimary, fontWeight: "700" },
                 ]}
               >
                 {item.label}
@@ -601,7 +602,7 @@ export default function Profile({ navigation }: any) {
         <Text style={s.sectionTitle}>Security</Text>
 
         <TouchableOpacity
-          style={[s.btn, { backgroundColor: "#444" }]}
+          style={[s.btn, { backgroundColor: theme.isDark ? "#374151" : "#444" }]}
           onPress={sendPasswordReset}
         >
           <Text style={s.btnTxt}>Email me a password reset link</Text>
@@ -677,220 +678,244 @@ export default function Profile({ navigation }: any) {
               <Text style={s.devFixtureActiveText}>⚠ DEV fixture active — no real ACH connection</Text>
             </View>
           )}
+
+          <View style={s.devDivider} />
+
+          <Text style={s.devSectionLabel}>Theme Preference</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+            {(['system', 'light', 'dark'] as Preference[]).map((p) => (
+              <TouchableOpacity
+                key={p}
+                onPress={() => setPreference(p)}
+                style={[
+                  s.devBtn,
+                  { flex: 1 },
+                  preference === p && { backgroundColor: '#1B5E20', borderColor: '#2E7D32' },
+                ]}
+              >
+                <Text style={[s.devBtnText, preference === p && { color: '#fff' }]}>
+                  {p.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
     </ScrollView>
   );
 }
 
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: BG },
-  content: { padding: 20, paddingBottom: 28 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+function makeS(t: AppTheme) {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.background },
+    content: { padding: 20, paddingBottom: 28 },
+    center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.background },
 
-  heroCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e5e7eb",
-  },
+    heroCard: {
+      backgroundColor: t.surface,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.border,
+    },
 
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    color: GREEN,
-    marginBottom: 6,
-    letterSpacing: 0.4,
-  },
+    eyebrow: {
+      fontSize: 12,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      color: t.positive,
+      marginBottom: 6,
+      letterSpacing: 0.4,
+    },
 
-  h1: { fontSize: 24, fontWeight: "800", color: "#111" },
-  heroSub: { marginTop: 6, color: "#666", fontSize: 15 },
+    h1: { fontSize: 24, fontWeight: "800", color: t.textPrimary },
+    heroSub: { marginTop: 6, color: t.textSecondary, fontSize: 15 },
 
-  iouHashText: {
-    marginTop: 8,
-    color: "#667085",
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-  },
+    iouHashText: {
+      marginTop: 8,
+      color: t.textMuted,
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 0.4,
+    },
 
-  heroStatusRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 14,
-  },
+    heroStatusRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 14,
+    },
 
-  statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
-  statusPillText: { fontWeight: "800", fontSize: 12 },
+    statusPill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+    statusPillText: { fontWeight: "800", fontSize: 12 },
 
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e5e7eb",
-  },
+    card: {
+      backgroundColor: t.surface,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: t.border,
+    },
 
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111",
-    marginBottom: 4,
-  },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: t.textPrimary,
+      marginBottom: 4,
+    },
 
-  label: { fontWeight: "800", color: "#333", marginTop: 10 },
+    label: { fontWeight: "800", color: t.textSecondary, marginTop: 10 },
 
-  input: {
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 6,
-    backgroundColor: "#f9fafb",
-  },
+    input: {
+      borderWidth: 1,
+      borderColor: t.border,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginTop: 6,
+      backgroundColor: t.surfaceMuted,
+      color: t.textPrimary,
+    },
 
-  value: { marginTop: 6, color: "#444" },
+    value: { marginTop: 6, color: t.textSecondary },
 
-  helperText: { marginTop: 6, color: "#555", lineHeight: 20 },
+    helperText: { marginTop: 6, color: t.textSecondary, lineHeight: 20 },
 
-  metaText: {
-    marginTop: 6,
-    color: "#667085",
-    fontSize: 13,
-    fontWeight: "600",
-  },
+    metaText: {
+      marginTop: 6,
+      color: t.textMuted,
+      fontSize: 13,
+      fontWeight: "600",
+    },
 
-  rowBetween: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
+    rowBetween: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
 
-  btn: {
-    marginTop: 12,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
+    btn: {
+      marginTop: 12,
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: "center",
+    },
 
-  btnTxt: { color: "#fff", fontWeight: "800" },
+    btnTxt: { color: "#fff", fontWeight: "800" },
 
-  percentText: { fontSize: 16, fontWeight: "800", color: GREEN },
+    percentText: { fontSize: 16, fontWeight: "800", color: t.positive },
 
-  progressTrack: {
-    marginTop: 10,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "#EAEAEA",
-    overflow: "hidden",
-  },
+    progressTrack: {
+      marginTop: 10,
+      height: 10,
+      borderRadius: 999,
+      backgroundColor: t.isDark ? "#1A1A1A" : "#EAEAEA",
+      overflow: "hidden",
+    },
 
-  progressFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: GREEN,
-  },
+    progressFill: {
+      height: "100%",
+      borderRadius: 999,
+      backgroundColor: t.positive,
+    },
 
-  checklist: { marginTop: 14, gap: 10 },
-  checkRow: { flexDirection: "row", alignItems: "center" },
-  checkIcon: { width: 22, fontSize: 16, fontWeight: "800", color: GREEN },
-  checkText: { color: "#666", fontSize: 14 },
+    checklist: { marginTop: 14, gap: 10 },
+    checkRow: { flexDirection: "row", alignItems: "center" },
+    checkIcon: { width: 22, fontSize: 16, fontWeight: "800", color: t.positive },
+    checkText: { color: t.textMuted, fontSize: 14 },
 
-  devCard: {
-    backgroundColor: "#1F2937",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-  },
-  devCardTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    color: "#6B7280",
-    marginBottom: 10,
-  },
-  devBtn: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    backgroundColor: "#374151",
-    borderWidth: 1,
-    borderColor: "#4B5563",
-  },
-  devBtnText: { color: "#D1D5DB", fontWeight: "800", fontSize: 14 },
+    fixtureWarning: {
+      marginTop: 8,
+      backgroundColor: t.warningSurface,
+      borderRadius: 8,
+      padding: 8,
+      borderWidth: 1,
+      borderColor: t.isDark ? "#3D2800" : "#FDE68A",
+    },
+    fixtureWarningText: {
+      color: t.warning,
+      fontSize: 12,
+      fontWeight: "800",
+    },
 
-  devDivider: {
-    height: 1,
-    backgroundColor: "#374151",
-    marginVertical: 12,
-  },
-  devSectionLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    color: "#9CA3AF",
-    marginBottom: 8,
-  },
-  devInput: {
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: "#F9FAFB",
-    fontSize: 13,
-    fontFamily: "monospace",
-    borderWidth: 1,
-    borderColor: "#374151",
-  },
-  devResultCard: {
-    marginTop: 10,
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#374151",
-  },
-  devResultText: {
-    color: "#6EE7B7",
-    fontSize: 11,
-    fontFamily: "monospace",
-    lineHeight: 17,
-  },
+    devCard: {
+      backgroundColor: "#1F2937",
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 14,
+    },
+    devCardTitle: {
+      fontSize: 11,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      color: "#6B7280",
+      marginBottom: 10,
+    },
+    devBtn: {
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: "center",
+      backgroundColor: "#374151",
+      borderWidth: 1,
+      borderColor: "#4B5563",
+    },
+    devBtnText: { color: "#D1D5DB", fontWeight: "800", fontSize: 14 },
 
-  fixtureWarning: {
-    marginTop: 8,
-    backgroundColor: "#FEF9C3",
-    borderRadius: 8,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-  },
-  fixtureWarningText: {
-    color: "#92400E",
-    fontSize: 12,
-    fontWeight: "800",
-  },
+    devDivider: {
+      height: 1,
+      backgroundColor: "#374151",
+      marginVertical: 12,
+    },
+    devSectionLabel: {
+      fontSize: 10,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      color: "#9CA3AF",
+      marginBottom: 8,
+    },
+    devInput: {
+      backgroundColor: "#111827",
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      color: "#F9FAFB",
+      fontSize: 13,
+      fontFamily: "monospace",
+      borderWidth: 1,
+      borderColor: "#374151",
+    },
+    devResultCard: {
+      marginTop: 10,
+      backgroundColor: "#111827",
+      borderRadius: 8,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: "#374151",
+    },
+    devResultText: {
+      color: "#6EE7B7",
+      fontSize: 11,
+      fontFamily: "monospace",
+      lineHeight: 17,
+    },
 
-  devFixtureActive: {
-    marginTop: 10,
-    backgroundColor: "#78350F",
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#92400E",
-  },
-  devFixtureActiveText: {
-    color: "#FDE68A",
-    fontSize: 12,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-});
+    devFixtureActive: {
+      marginTop: 10,
+      backgroundColor: "#78350F",
+      borderRadius: 8,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: "#92400E",
+    },
+    devFixtureActiveText: {
+      color: "#FDE68A",
+      fontSize: 12,
+      fontWeight: "800",
+      textAlign: "center",
+    },
+  });
+}

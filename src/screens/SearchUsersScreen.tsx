@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -13,10 +13,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../supabase";
 import SebivAvatar from "../components/SebivAvatar";
-
-const GREEN = "#1B5E20";
-const GREEN_LIGHT = "#4CAF50";
-const BG = "#F5F7F9";
+import { useAppTheme, AppTheme } from "../theme";
 
 type UserResult = {
   id: string;
@@ -36,6 +33,9 @@ type RecentContact = {
 
 
 export default function SearchUsersScreen({ navigation }: any) {
+  const theme = useAppTheme();
+  const s = useMemo(() => makeS(theme), [theme]);
+
   const [userId, setUserId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -216,7 +216,7 @@ export default function SearchUsersScreen({ navigation }: any) {
             if (!t.trim()) { setResults([]); setHasSearched(false); }
           }}
           placeholder="Search by name, email, or phone"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={theme.textMuted}
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
@@ -293,102 +293,91 @@ export default function SearchUsersScreen({ navigation }: any) {
   );
 }
 
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: BG },
-  headerWrap: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
-  h1: { fontSize: 28, fontWeight: "900", color: "#111827" },
-  searchWrap: {
-    flexDirection: "row",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 4,
-    alignItems: "center",
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 15,
-    backgroundColor: "#fff",
-    color: "#111",
-  },
-  searchBtn: {
-    backgroundColor: GREEN,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 72,
-  },
-  searchBtnText: { color: "#fff", fontWeight: "900", fontSize: 14 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 60 },
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    paddingTop: 18,
-    paddingBottom: 8,
-    paddingHorizontal: 2,
-  },
-  contactCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#E8F5E9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: { color: GREEN, fontWeight: "900", fontSize: 16 },
-  contactName: { fontSize: 15, fontWeight: "800", color: "#111827" },
-  contactEmail: { marginTop: 2, color: "#6B7280", fontSize: 13, fontWeight: "600" },
-  scoreText: { marginTop: 4, color: "#3B82F6", fontSize: 12, fontWeight: "800" },
-  actionBtn: {
-    backgroundColor: "#F0FBF0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: "#C8E6C9",
-  },
-  actionBtnText: { color: GREEN, fontWeight: "800", fontSize: 13 },
-  emptyBox: {
-    alignItems: "center",
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-  },
-  emptyTitle: { fontSize: 16, fontWeight: "900", color: "#374151", marginBottom: 6 },
-  emptyText: {
-    textAlign: "center",
-    color: "#6B7280",
-    lineHeight: 20,
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  findBtn: {
-    marginTop: 14,
-    backgroundColor: GREEN,
-    borderRadius: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-  },
-  findBtnText: { color: "#fff", fontWeight: "900", fontSize: 14 },
-  greenText: { color: GREEN_LIGHT },
-});
+function makeS(t: AppTheme) {
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.background },
+    searchWrap: {
+      flexDirection: "row",
+      gap: 8,
+      marginHorizontal: 16,
+      marginTop: 14,
+      marginBottom: 4,
+      alignItems: "center",
+    },
+    input: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: t.border,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      fontSize: 15,
+      backgroundColor: t.surface,
+      color: t.textPrimary,
+    },
+    searchBtn: {
+      backgroundColor: t.brand,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 11,
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: 72,
+    },
+    searchBtnText: { color: "#fff", fontWeight: "900", fontSize: 14 },
+    listContent: { paddingHorizontal: 16, paddingBottom: 60 },
+    sectionHeader: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: t.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      paddingTop: 18,
+      paddingBottom: 8,
+      paddingHorizontal: 2,
+    },
+    contactCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: t.surface,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: t.border,
+    },
+    contactName: { fontSize: 15, fontWeight: "800", color: t.textPrimary },
+    scoreText: { marginTop: 4, color: t.positive, fontSize: 12, fontWeight: "800" },
+    actionBtn: {
+      backgroundColor: t.positiveSurface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderWidth: 1,
+      borderColor: t.positiveBorder,
+    },
+    actionBtnText: { color: t.isDark ? t.brandBright : t.brand, fontWeight: "800", fontSize: 13 },
+    emptyBox: {
+      alignItems: "center",
+      paddingVertical: 24,
+      paddingHorizontal: 16,
+    },
+    emptyTitle: { fontSize: 16, fontWeight: "900", color: t.textSecondary, marginBottom: 6 },
+    emptyText: {
+      textAlign: "center",
+      color: t.textMuted,
+      lineHeight: 20,
+      fontWeight: "600",
+      fontSize: 14,
+    },
+    findBtn: {
+      marginTop: 14,
+      backgroundColor: t.brand,
+      borderRadius: 12,
+      paddingHorizontal: 20,
+      paddingVertical: 11,
+    },
+    findBtnText: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  });
+}

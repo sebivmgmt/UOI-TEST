@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../supabase";
+import { useAppTheme, AppTheme } from "../theme";
 
 const GREEN = "#77B777";
 const GREEN_DARK = "#5F9F5F";
@@ -21,7 +22,6 @@ const RED = "#D9534F";
 const BLUE = "#3B82F6";
 const AMBER = "#B7791F";
 const PURPLE = "#7C3AED";
-const BG = "#F5F7F9";
 
 type PublicProfileRow = {
   id: string;
@@ -77,7 +77,7 @@ function scoreLabel(v: number | null): string {
 }
 
 function scoreColor(v: number | null): string {
-  if (v === null) return "#111";
+  if (v === null) return "#9CA3AF";
   if (v >= 1000) return GREEN_DARK;
   if (v >= 800) return GREEN;
   if (v >= 700) return BLUE;
@@ -96,22 +96,26 @@ function EntryCard({
   accent?: string;
   onPress: () => void;
 }) {
+  const theme = useAppTheme();
+  const es = useMemo(() => makeS(theme), [theme]);
   return (
     <TouchableOpacity
-      style={[s.entryCard, { borderLeftColor: accent }]}
+      style={[es.entryCard, { borderLeftColor: accent }]}
       onPress={onPress}
       activeOpacity={0.88}
     >
       <View style={{ flex: 1 }}>
-        <Text style={[s.entryCardTitle, { color: accent }]}>{title}</Text>
-        <Text style={s.entryCardSub}>{subtitle}</Text>
+        <Text style={[es.entryCardTitle, { color: accent }]}>{title}</Text>
+        <Text style={es.entryCardSub}>{subtitle}</Text>
       </View>
-      <Text style={[s.entryCardArrow, { color: accent }]}>→</Text>
+      <Text style={[es.entryCardArrow, { color: accent }]}>→</Text>
     </TouchableOpacity>
   );
 }
 
 export default function TrustHomeScreen({ navigation }: any) {
+  const theme = useAppTheme();
+  const s = useMemo(() => makeS(theme), [theme]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<PublicProfileRow | null>(null);
@@ -181,12 +185,12 @@ export default function TrustHomeScreen({ navigation }: any) {
   const color = scoreColor(score);
 
   if (loading) {
-    return <View style={s.center}><ActivityIndicator color={GREEN} /></View>;
+    return <View style={[s.center, { backgroundColor: theme.background }]}><ActivityIndicator color={GREEN} /></View>;
   }
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: BG }}
+      style={{ flex: 1, backgroundColor: theme.background }}
       contentContainerStyle={s.content}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -238,7 +242,7 @@ export default function TrustHomeScreen({ navigation }: any) {
       {/* Score v2.1 Shadow — DEV only */}
       <View style={s.shadowCard}>
         <View style={s.shadowHeader}>
-          <Text style={s.shadowTitle}>Score v2.1 — Shadow</Text>
+          <Text style={s.shadowTitle}>Score v2.2 — Shadow</Text>
           <View style={s.shadowBadge}>
             <Text style={s.shadowBadgeText}>DEV</Text>
           </View>
@@ -388,17 +392,17 @@ export default function TrustHomeScreen({ navigation }: any) {
   );
 }
 
-const s = StyleSheet.create({
+const makeS = (t: AppTheme) => StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: 16, paddingBottom: 100 },
 
   scoreCard: {
-    backgroundColor: "#fff",
+    backgroundColor: t.surface,
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#E5E7EB",
+    borderColor: t.border,
   },
   scoreCardTop: {
     flexDirection: "row",
@@ -410,7 +414,7 @@ const s = StyleSheet.create({
     fontWeight: "800",
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    color: "#667085",
+    color: t.textMuted,
   },
   tierPill: {
     borderRadius: 999,
@@ -419,25 +423,25 @@ const s = StyleSheet.create({
   },
   tierPillText: { fontWeight: "800", fontSize: 12 },
   scoreValue: { fontSize: 56, fontWeight: "900", lineHeight: 62, marginTop: 4 },
-  scoreHint: { color: "#666", fontSize: 14, marginTop: 2 },
+  scoreHint: { color: t.textMuted, fontSize: 14, marginTop: 2 },
 
   metricsRow: { flexDirection: "row", gap: 10, marginTop: 14 },
   metricBox: {
     flex: 1,
-    backgroundColor: "#F6F8FA",
+    backgroundColor: t.surfaceMuted,
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#E8EBEF",
+    borderColor: t.border,
   },
   metricLabel: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#667085",
+    color: t.textMuted,
     textTransform: "uppercase",
     marginBottom: 4,
   },
-  metricValue: { fontSize: 24, fontWeight: "900", color: "#111" },
+  metricValue: { fontSize: 24, fontWeight: "900", color: t.textPrimary },
 
   scoreHistoryCta: {
     flexDirection: "row",
@@ -446,7 +450,7 @@ const s = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: t.border,
   },
   scoreHistoryCtaText: { color: BLUE, fontWeight: "800", fontSize: 14 },
   scoreHistoryCtaArrow: { color: BLUE, fontWeight: "900", fontSize: 16 },
@@ -454,29 +458,29 @@ const s = StyleSheet.create({
   sectionLabel: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#6B7280",
+    color: t.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginBottom: 10,
   },
 
   entryCard: {
-    backgroundColor: "#fff",
+    backgroundColor: t.surface,
     borderRadius: 12,
     padding: 14,
     marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#E5E7EB",
+    borderColor: t.border,
     borderLeftWidth: 3,
   },
   entryCardTitle: { fontSize: 15, fontWeight: "800", marginBottom: 3 },
-  entryCardSub: { fontSize: 12, color: "#667085", lineHeight: 18 },
+  entryCardSub: { fontSize: 12, color: t.textMuted, lineHeight: 18 },
   entryCardArrow: { fontSize: 18, fontWeight: "900", marginLeft: 12 },
 
   shadowCard: {
-    backgroundColor: "#fff",
+    backgroundColor: t.surface,
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,
@@ -534,7 +538,7 @@ const s = StyleSheet.create({
   },
   shadowModelLabel: {
     fontSize: 11,
-    color: "#9CA3AF",
+    color: t.textMuted,
     marginBottom: 12,
     marginTop: 2,
   },
@@ -545,7 +549,7 @@ const s = StyleSheet.create({
   },
   shadowMetric: {
     flex: 1,
-    backgroundColor: "#F6F4FD",
+    backgroundColor: t.isDark ? "#130D1E" : "#F6F4FD",
     borderRadius: 10,
     padding: 10,
   },
@@ -559,11 +563,11 @@ const s = StyleSheet.create({
   shadowMetricValue: {
     fontSize: 20,
     fontWeight: "900",
-    color: "#111",
+    color: t.textPrimary,
   },
   shadowMetricSub: {
     fontSize: 10,
-    color: "#6B7280",
+    color: t.textMuted,
     marginTop: 2,
     textTransform: "capitalize",
   },
@@ -575,7 +579,7 @@ const s = StyleSheet.create({
   },
   shadowFooterText: {
     fontSize: 11,
-    color: "#9CA3AF",
+    color: t.textMuted,
   },
   shadowErrorBlock: {
     marginTop: 12,
@@ -598,19 +602,19 @@ const s = StyleSheet.create({
     color: PURPLE,
   },
 
-  modal: { flex: 1, backgroundColor: "#fff" },
+  modal: { flex: 1, backgroundColor: t.surface },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     padding: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: t.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#111" },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: t.textPrimary },
   modalClose: { fontSize: 15, color: BLUE, fontWeight: "700" },
   modalContent: { padding: 16, paddingBottom: 40 },
-  pillarsIntro: { fontSize: 14, color: "#555", lineHeight: 22, marginBottom: 20 },
+  pillarsIntro: { fontSize: 14, color: t.textSecondary, lineHeight: 22, marginBottom: 20 },
   pillarRow: { flexDirection: "row", gap: 14, marginBottom: 20, alignItems: "flex-start" },
   pillarNum: {
     width: 28,
@@ -623,6 +627,6 @@ const s = StyleSheet.create({
     marginTop: 1,
   },
   pillarNumText: { color: "#fff", fontWeight: "900", fontSize: 13 },
-  pillarTitle: { fontSize: 15, fontWeight: "800", color: "#111", marginBottom: 4 },
-  pillarBody: { fontSize: 13, color: "#555", lineHeight: 20 },
+  pillarTitle: { fontSize: 15, fontWeight: "800", color: t.textPrimary, marginBottom: 4 },
+  pillarBody: { fontSize: 13, color: t.textSecondary, lineHeight: 20 },
 });

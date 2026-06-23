@@ -1,5 +1,5 @@
 // src/screens/Auth.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,14 +12,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
   Animated as RNAnimated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../supabase";
+import { useAppTheme, AppTheme } from "../theme";
 
 const BRAND = "#1B5E20";
 
-export default function Auth() {
+export default function Auth({ navigation }: any) {
+  const theme = useAppTheme();
+  const s = useMemo(() => makeStyles(theme), [theme]);
+
   const [mode, setMode] = useState<"landing" | "login">("landing");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,6 +33,15 @@ export default function Auth() {
   const [signUpEmail, setSignUpEmail] = useState("");
   const [signUpPassword, setSignUpPassword] = useState("");
   const [signUpBusy, setSignUpBusy] = useState(false);
+
+  // Override the stack-level statusBarStyle for this headerless screen.
+  // All other auth screens have visible headers (dark green / black) so
+  // 'light' icons are correct for them — only Welcome needs theme-aware icons.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      statusBarStyle: (theme.isDark ? 'light' : 'dark') as 'light' | 'dark',
+    });
+  }, [navigation, theme.isDark]);
 
   const contentOpacity = useRef(new RNAnimated.Value(0)).current;
   const loginFormHeight = useRef(new RNAnimated.Value(0)).current;
@@ -130,11 +144,11 @@ export default function Auth() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Logo wordmark + spinning O */}
+          {/* Logo wordmark */}
           <RNAnimated.View style={[s.logoWrap, { opacity: contentOpacity }]}>
-            <RNAnimated.Image
+            <Image
               source={require("../../assets/iou-wordmark-final.png")}
-              style={s.logo}
+              style={[s.logo, theme.isDark && { tintColor: '#ffffff' }]}
               resizeMode="contain"
             />
           </RNAnimated.View>
@@ -151,7 +165,7 @@ export default function Auth() {
               <TextInput
                 style={s.input}
                 placeholder="Email"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={theme.textMuted}
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={email}
@@ -161,7 +175,7 @@ export default function Auth() {
               <TextInput
                 style={s.input}
                 placeholder="Password"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={theme.textMuted}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
@@ -248,7 +262,7 @@ export default function Auth() {
               <TextInput
                 style={s.input}
                 placeholder="Email"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={theme.textMuted}
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={signUpEmail}
@@ -258,7 +272,7 @@ export default function Auth() {
               <TextInput
                 style={s.input}
                 placeholder="Password"
-                placeholderTextColor="#aaa"
+                placeholderTextColor={theme.textMuted}
                 secureTextEntry
                 value={signUpPassword}
                 onChangeText={setSignUpPassword}
@@ -295,10 +309,10 @@ export default function Auth() {
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (t: AppTheme) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: t.background,
   },
   scroll: {
     flexGrow: 1,
@@ -324,12 +338,12 @@ const s = StyleSheet.create({
   tagline: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#111",
+    color: t.textPrimary,
     textAlign: "center",
   },
   sub: {
     fontSize: 16,
-    color: "#667085",
+    color: t.textMuted,
     fontWeight: "600",
     textAlign: "center",
     marginTop: 6,
@@ -337,13 +351,13 @@ const s = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: t.border,
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
-    backgroundColor: "#fafafa",
+    backgroundColor: t.surfaceMuted,
     fontSize: 16,
-    color: "#111",
+    color: t.textPrimary,
   },
   ctaSection: {
     gap: 12,
@@ -361,13 +375,13 @@ const s = StyleSheet.create({
   },
   outlineBtn: {
     borderWidth: 2,
-    borderColor: BRAND,
+    borderColor: t.isDark ? t.brandBright : BRAND,
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: "center",
   },
   outlineBtnText: {
-    color: BRAND,
+    color: t.isDark ? t.brandBright : BRAND,
     fontWeight: "900",
     fontSize: 17,
   },
@@ -376,13 +390,13 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   linkBtnText: {
-    color: "#667085",
+    color: t.textMuted,
     fontWeight: "700",
     fontSize: 15,
   },
   modalSafe: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: t.surface,
   },
   modalScroll: {
     flexGrow: 1,
@@ -397,15 +411,15 @@ const s = StyleSheet.create({
   modalTitle: {
     fontSize: 26,
     fontWeight: "900",
-    color: "#111",
+    color: t.textPrimary,
   },
   modalClose: {
     fontSize: 20,
-    color: "#667085",
+    color: t.textMuted,
     fontWeight: "700",
   },
   modalSubtitle: {
-    color: "#667085",
+    color: t.textMuted,
     fontWeight: "600",
     marginBottom: 20,
     lineHeight: 20,

@@ -46,7 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
-  userInterfaceStyle: "light",
+  userInterfaceStyle: "automatic",
   newArchEnabled: true,
   splash: {
     image: "./assets/splash-icon.png",
@@ -56,11 +56,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.alexandrino7.mobile",
+    userInterfaceStyle: "automatic",
     infoPlist: {
       NSCalendarsUsageDescription:
         "IOU needs calendar access to add your payment due dates",
       NSCalendarsFullAccessUsageDescription:
         "IOU needs calendar access to add your payment due dates",
+      UIViewControllerBasedStatusBarAppearance: true,
     },
   },
   android: {
@@ -71,6 +73,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: "com.alexandrino7.mobile",
+    userInterfaceStyle: "automatic",
   },
   web: {
     favicon: "./assets/favicon.png",

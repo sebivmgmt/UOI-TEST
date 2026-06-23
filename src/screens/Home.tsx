@@ -14,6 +14,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Image,
   RefreshControl,
   Text,
   TouchableOpacity,
@@ -22,6 +23,7 @@ import {
   StyleSheet,
   Share,
 } from 'react-native';
+import { useAppTheme, AppTheme } from '../theme';
 import { useFocusEffect } from '@react-navigation/native';
 import SebivAvatar from '../components/SebivAvatar';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
@@ -86,7 +88,6 @@ type ListEntry =
   | { type: 'item'; data: UpcomingItem; id: string; completed: boolean }
   | { type: 'empty'; message: string; id: string };
 const IOU_GREEN = '#1B5E20';
-const IOU_GREEN_DARK = '#1B5E20';
 const IOU_RED_DARK = '#C62828';
 const BLUE = '#3b82f6';
 const ORANGE = '#f59e0b';
@@ -107,20 +108,6 @@ const dueBadge = (
   if (isSameDay(due, now)) return 'today';
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return due < startOfToday ? 'late' : 'due';
-};
-const badgeColorFor = (badge: string) => {
-  if (badge === 'paid') return '#4CAF50';
-  if (badge === 'pending') return BLUE;
-  if (badge === 'late') return '#E53935';
-  if (badge === 'today') return '#0288D1';
-  return '#F9A825';
-};
-const paymentStatusBgFor = (status?: string) => {
-  if (status === 'paid') return '#C8E6C9';
-  if (status === 'pending_confirmation') return '#BBDEFB';
-  if (status === 'late') return '#FFCDD2';
-  if (status === 'scheduled') return '#E0E0E0';
-  return '#E0E0E0';
 };
 const sortUpcoming = (items: UpcomingItem[]) => {
   return [...items].sort((a, b) => {
@@ -153,41 +140,22 @@ const paymentStatusLabel = (status: string): string => {
   if (status === 'late') return 'Late';
   return status;
 };
-const statusChipColors = (status: string): { bg: string; text: string } => {
-  if (status === 'paid') return { bg: '#C8E6C9', text: '#1B5E20' };
-  if (status === 'pending_confirmation') return { bg: '#BBDEFB', text: '#1565C0' };
-  if (status === 'late') return { bg: '#FFCDD2', text: '#C62828' };
-  if (status === 'scheduled') return { bg: '#E8F5E9', text: '#2E7D32' };
-  return { bg: '#E0E0E0', text: '#374151' };
-};
-const clampProgress = (value: number) => {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
-};
-const getProgressPercent = (item: UpcomingItem) => {
-  if (typeof item.progress_percent === 'number') {
-    return clampProgress(item.progress_percent);
+const statusChipColors = (status: string, isDark: boolean): { bg: string; text: string; border: string } => {
+  if (isDark) {
+    if (status === 'paid') return { bg: '#051A0A', text: '#66BB6A', border: '#0D3A15' };
+    if (status === 'pending_confirmation') return { bg: '#050A1A', text: '#60A5FA', border: '#0D1540' };
+    if (status === 'late') return { bg: '#1A0505', text: '#FF6B6B', border: '#3A0D0D' };
+    return { bg: '#111111', text: '#9CA3AF', border: '#262626' };
   }
-  if (
-    typeof item.paid_installments === 'number' &&
-    typeof item.total_installments === 'number' &&
-    item.total_installments > 0
-  ) {
-    return clampProgress((item.paid_installments / item.total_installments) * 100);
-  }
-  return 0;
-};
-const getProgressLabel = (item: UpcomingItem) => {
-  if (
-    typeof item.paid_installments === 'number' &&
-    typeof item.total_installments === 'number' &&
-    item.total_installments > 0
-  ) {
-    return `${item.paid_installments}/${item.total_installments} paid`;
-  }
-  return `${getProgressPercent(item)}% complete`;
+  if (status === 'paid') return { bg: '#DCFCE7', text: '#15803D', border: '#BBF7D0' };
+  if (status === 'pending_confirmation') return { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' };
+  if (status === 'late') return { bg: '#FEF2F2', text: '#991B1B', border: '#FECACA' };
+  if (status === 'scheduled') return { bg: '#F3F4F6', text: '#374151', border: '#E5E7EB' };
+  return { bg: '#F3F4F6', text: '#374151', border: '#E5E7EB' };
 };
 export default function Home({ navigation }: Props) {
+  const theme = useAppTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const [userId, setUserId] = useState<string | null>(null);
   const [phoneVerified, setPhoneVerified] = useState<boolean | null>(null);
   const [pendingInboxCount, setPendingInboxCount] = useState<number>(0);
@@ -202,20 +170,33 @@ export default function Home({ navigation }: Props) {
   const toastAnim = useRef(new Animated.Value(0)).current;
 
   useLayoutEffect(() => {
+    const hStyles = makeHeaderStyles(theme);
     navigation.setOptions({
-      headerStyle: { backgroundColor: '#1B5E20' },
+      headerStyle: {
+        backgroundColor: theme.headerBackground,
+        borderBottomWidth: 1,
+        borderBottomColor: '#1B5E20',
+      },
       headerShadowVisible: false,
       headerTitleAlign: 'center',
-      headerTitle: () => null,
+      statusBarStyle: theme.isDark ? 'light' : 'dark',
+      headerTitle: () => (
+        <Image
+          source={require('../../assets/iou-wordmark-final.png')}
+          style={{ height: 32, width: 81, ...(theme.isDark ? { tintColor: '#fff' } : {}) }}
+          resizeMode="contain"
+          accessibilityLabel="IOU"
+        />
+      ),
       headerLeft: () => (
         <TouchableOpacity
           onPress={() => navigation.navigate(SCREENS.Inbox)}
-          style={headerS.sideBtn}
+          style={hStyles.sideBtn}
         >
-          <Text style={headerS.sideBtnText}>Inbox</Text>
+          <Text style={hStyles.sideBtnText}>Inbox</Text>
           {pendingInboxCount > 0 && (
-            <View style={headerS.countBadge}>
-              <Text style={headerS.countText}>
+            <View style={hStyles.countBadge}>
+              <Text style={hStyles.countText}>
                 {pendingInboxCount > 99 ? '99+' : pendingInboxCount}
               </Text>
             </View>
@@ -225,13 +206,13 @@ export default function Home({ navigation }: Props) {
       headerRight: () => (
         <TouchableOpacity
           onPress={() => navigation.navigate(SCREENS.Profile)}
-          style={[headerS.sideBtn, { marginRight: 16 }]}
+          style={[hStyles.sideBtn, { marginRight: 16 }]}
         >
-          <Text style={headerS.sideBtnText}>Profile</Text>
+          <Text style={hStyles.sideBtnText}>Profile</Text>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, pendingInboxCount]);
+  }, [navigation, pendingInboxCount, theme]);
   useScreenGuard('Home', [
     { label: 'FAB + New IOU present', pass: true },
     { label: 'Header → Archived', pass: !!navigation },
@@ -678,6 +659,20 @@ export default function Home({ navigation }: Props) {
     filter: 'all' | 'in' | 'out';
     onFilterChange: (f: 'all' | 'in' | 'out') => void;
   }) {
+    const inStatusText = inToday > 0 ? `${inToday} due today` : inLate > 0 ? `${inLate} late` : 'All on track';
+    const inStatusColor = inLate > 0
+      ? (theme.isDark ? '#FF6B6B' : '#C62828')
+      : inToday > 0
+        ? (theme.isDark ? '#FBBF24' : '#B45309')
+        : (theme.isDark ? '#66BB6A' : '#2E7D32');
+    const outStatusText = outToday > 0 ? `${outToday} due today` : outLate > 0 ? `${outLate} late` : 'All on track';
+    const outStatusColor = outLate > 0
+      ? (theme.isDark ? '#FF6B6B' : '#C62828')
+      : outToday > 0
+        ? (theme.isDark ? '#FBBF24' : '#B45309')
+        : (theme.isDark ? theme.textMuted : '#4B5563');
+    const inFutureCount = futureItems.filter(i => i.direction === 'in').length;
+    const outFutureCount = futureItems.filter(i => i.direction === 'out').length;
     return (
       <>
         {phoneVerified === false && (
@@ -688,46 +683,40 @@ export default function Home({ navigation }: Props) {
           >
             <Text style={styles.verifyTitle}>Verify your phone</Text>
             <Text style={styles.verifyText}>
-              You'll need to verify your phone before creating new IOUs. Tap to verify →
+              Verify your phone before creating new IOUs. Tap to continue →
             </Text>
           </TouchableOpacity>
         )}
         <View style={styles.summaryRow}>
           <TouchableOpacity
-            style={[
-              styles.summaryCard,
-              filter === 'in' ? styles.summaryCardGreenActive : styles.summaryCardGreen,
-            ]}
+            style={[styles.summaryCard, styles.summaryCardOwed, filter === 'in' && styles.summaryCardGreenActive]}
             activeOpacity={0.85}
             onPress={() => onFilterChange(filter === 'in' ? 'all' : 'in')}
           >
-            <Text style={[styles.summaryLabel, filter === 'in' && styles.summaryTextActive]}>
-              You're owed
-            </Text>
-            <Text style={[styles.summaryAmount, { color: filter === 'in' ? '#fff' : IOU_GREEN }]}>
-              {currency(inTotal)}
-            </Text>
-            <Text style={[styles.summaryMeta, filter === 'in' && styles.summaryTextActive]}>
-              {inToday > 0 ? `${inToday} due today` : inLate > 0 ? `${inLate} late` : 'All on track'}
-            </Text>
+            <Text style={styles.summaryLabel}>You're owed</Text>
+            <Text style={[styles.summaryAmount, { color: theme.isDark ? theme.positive : IOU_GREEN }]}>{currency(inTotal)}</Text>
+            {inFutureCount > 0 && (
+              <Text style={styles.summaryCount}>{inFutureCount} upcoming</Text>
+            )}
+            <View style={styles.summaryStatusRow}>
+              <View style={[styles.summaryDot, { backgroundColor: inStatusColor }]} />
+              <Text style={[styles.summaryStatus, { color: inStatusColor }]}>{inStatusText}</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[
-              styles.summaryCard,
-              filter === 'out' ? styles.summaryCardRedActive : styles.summaryCardRed,
-            ]}
+            style={[styles.summaryCard, styles.summaryCardOwe, filter === 'out' && styles.summaryCardRedActive]}
             activeOpacity={0.85}
             onPress={() => onFilterChange(filter === 'out' ? 'all' : 'out')}
           >
-            <Text style={[styles.summaryLabel, filter === 'out' && styles.summaryTextActive]}>
-              You owe
-            </Text>
-            <Text style={[styles.summaryAmount, { color: filter === 'out' ? '#fff' : IOU_RED_DARK }]}>
-              {currency(outTotal)}
-            </Text>
-            <Text style={[styles.summaryMeta, filter === 'out' && styles.summaryTextActive]}>
-              {outToday > 0 ? `${outToday} due today` : outLate > 0 ? `${outLate} late` : 'All on track'}
-            </Text>
+            <Text style={styles.summaryLabel}>You owe</Text>
+            <Text style={[styles.summaryAmount, { color: theme.isDark ? theme.negative : IOU_RED_DARK }]}>{currency(outTotal)}</Text>
+            {outFutureCount > 0 && (
+              <Text style={styles.summaryCount}>{outFutureCount} upcoming</Text>
+            )}
+            <View style={styles.summaryStatusRow}>
+              <View style={[styles.summaryDot, { backgroundColor: outStatusColor }]} />
+              <Text style={[styles.summaryStatus, { color: outStatusColor }]}>{outStatusText}</Text>
+            </View>
           </TouchableOpacity>
         </View>
         <TouchableOpacity
@@ -735,16 +724,13 @@ export default function Home({ navigation }: Props) {
           onPress={() => navigation.navigate(SCREENS.SplitReceipt)}
           activeOpacity={0.85}
         >
-          <View style={styles.splitReceiptIcon}>
-            <View style={styles.splitReceiptIconLine} />
-            <View style={[styles.splitReceiptIconLine, { width: '70%' }]} />
-            <View style={[styles.splitReceiptIconLine, { width: '85%' }]} />
+          <View style={styles.splitReceiptContent}>
+            <Text style={styles.splitReceiptTitle}>Split a receipt</Text>
+            <Text style={styles.splitReceiptSub}>Scan and divide with friends</Text>
           </View>
-          <View style={styles.splitReceiptText}>
-            <Text style={styles.splitReceiptTitle}>Split a Receipt</Text>
-            <Text style={styles.splitReceiptSub}>Scan and split with friends instantly</Text>
+          <View style={styles.splitReceiptCta}>
+            <Text style={styles.splitReceiptCtaText}>Scan →</Text>
           </View>
-          <Text style={styles.splitReceiptArrow}>→</Text>
         </TouchableOpacity>
         {errorMsg && (
           <View style={styles.errorBanner}>
@@ -757,13 +743,17 @@ export default function Home({ navigation }: Props) {
   });
   const Row = memo(function Row({ item, completed }: { item: UpcomingItem; completed: boolean }) {
     const isIn = item.direction === 'in';
-    const railColor = completed ? '#D1D5DB' : (isIn ? '#4CAF50' : '#EF5350');
-    const amountColor = completed ? '#6B7280' : (isIn ? IOU_GREEN : IOU_RED_DARK);
+    const amountColor = completed
+      ? theme.textMuted
+      : isIn
+        ? (theme.isDark ? theme.positive : IOU_GREEN)
+        : (theme.isDark ? theme.negative : IOU_RED_DARK);
+    const sign = isIn ? '+' : '−';
 
     const displayName = item.counterparty_name || (isIn ? 'Borrower' : 'Lender');
     const nextDate = formatShortDate(item.scheduled_at);
     const statusLabel = paymentStatusLabel(item.payment_status);
-    const chipColors = statusChipColors(item.payment_status);
+    const chipColors = statusChipColors(item.payment_status, theme.isDark);
 
     const canPay =
       !isIn && !item.paid_at &&
@@ -829,43 +819,27 @@ export default function Home({ navigation }: Props) {
         overshootRight={false}
       >
         <TouchableOpacity activeOpacity={0.85} onPress={() => openFullLoan(item)}>
-          <View style={[styles.rowCard, { borderLeftWidth: 4, borderLeftColor: railColor, backgroundColor: completed ? '#FAFAFA' : '#fff' }]}>
+          <View style={[styles.rowCard, completed && styles.rowCardCompleted]}>
             <View style={styles.rowInner}>
-              <SebivAvatar uri={item.counterparty_avatar_url} size={46} />
+              <SebivAvatar uri={item.counterparty_avatar_url} size={40} />
               <View style={styles.rowContent}>
-                {/* Name + direction chip */}
                 <View style={styles.rowTopRow}>
                   <Text style={styles.rowPersonName} numberOfLines={1}>{displayName}</Text>
-                  <View style={[styles.dirTag, {
-                    backgroundColor: completed ? '#F3F4F6' : (isIn ? '#BBF7D0' : '#FEE2E2'),
-                  }]}>
-                    <Text style={[styles.dirTagText, {
-                      color: completed ? '#9CA3AF' : (isIn ? '#166534' : '#991B1B'),
-                    }]}>
-                      {isIn ? 'Incoming' : 'Outgoing'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Amount + due date */}
-                <View style={styles.rowAmountRow}>
                   <Text style={[styles.rowAmount, { color: amountColor }]}>
-                    {currency(item.amount_cents)}
+                    {sign}{currency(item.amount_cents)}
                   </Text>
-                  <Text style={styles.rowDueDate}>· Due {nextDate}</Text>
                 </View>
-
-                {/* Status chip + optional title */}
-                <View style={styles.rowBottomRow}>
-                  <View style={[styles.statusChip, { backgroundColor: chipColors.bg }]}>
+                <View style={styles.rowMetaRow}>
+                  <Text style={styles.rowDueDate}>{isIn ? 'Incoming' : 'Outgoing'} · {nextDate}</Text>
+                  <View style={[styles.statusChip, { backgroundColor: chipColors.bg, borderColor: chipColors.border, borderWidth: 1 }]}>
                     <Text style={[styles.statusChipText, { color: chipColors.text }]}>
                       {statusLabel}
                     </Text>
                   </View>
-                  {item.title ? (
-                    <Text style={styles.rowTitleMuted} numberOfLines={1}>{item.title}</Text>
-                  ) : null}
                 </View>
+                {item.title ? (
+                  <Text style={styles.rowTitleMuted} numberOfLines={1}>{item.title}</Text>
+                ) : null}
               </View>
             </View>
           </View>
@@ -874,7 +848,7 @@ export default function Home({ navigation }: Props) {
     );
   });
   return (
-    <View style={{ flex: 1, backgroundColor: '#f7f7f7' }}>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
       {showInboxToast && (
         <Animated.View
           style={[
@@ -950,747 +924,142 @@ export default function Home({ navigation }: Props) {
     </View>
   );
 }
-const styles = StyleSheet.create({
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  listContent: {
-    paddingBottom: 120,
-    paddingTop: 0,
-  },
-  verifyBanner: {
-    margin: 12,
-    marginBottom: 0,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: '#FFF3E0',
-    borderWidth: 1,
-    borderColor: '#FFCC80',
-  },
-  verifyTitle: {
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  verifyText: {
-    opacity: 0.8,
-  },
-  inboxBanner: {
-    margin: 12,
-    marginBottom: 0,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: '#EEF2F5',
-    borderWidth: 1,
-    borderColor: '#D0D5DD',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  inboxBannerActive: {
-    margin: 12,
-    marginBottom: 0,
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1.5,
-    borderColor: '#93C5FD',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  inboxTitle: {
-    fontWeight: '900',
-    color: '#1E3A5F',
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  inboxText: {
-    marginTop: 4,
-    color: '#3B82F6',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  inboxArrow: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: IOU_GREEN,
-  },
-  topSection: {
-    backgroundColor: '#fff',
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
-  },
-  scoreHero: {
-    marginHorizontal: 12,
-    marginTop: 12,
-    backgroundColor: '#F2FAF2',
-    borderWidth: 1,
-    borderColor: '#D7EBD7',
-    borderRadius: 18,
-    padding: 16,
-  },
-  scoreHeroTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  scoreHeroCopy: {
-    flex: 1,
-  },
-  scoreHeroEyebrow: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: IOU_GREEN_DARK,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  scoreHeroValue: {
-    marginTop: 4,
-    fontSize: 48,
-    lineHeight: 54,
-    fontWeight: '900',
-    color: IOU_GREEN_DARK,
-  },
-  scoreHeroSubtext: {
-    marginTop: 6,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#4B5B4B',
-  },
-  scoreTierPill: {
-    backgroundColor: '#DFF0DF',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignSelf: 'flex-start',
-  },
-  scoreTierText: {
-    color: IOU_GREEN_DARK,
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  scoreMetricsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
-  },
-  scoreMetricPill: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#DDEBDD',
-  },
-  scoreMetricLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#6A7A6A',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  scoreMetricValue: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: IOU_GREEN_DARK,
-  },
-  scoreMetricValueGood: {
-    color: IOU_GREEN_DARK,
-  },
-  scoreMetricValuePending: {
-    color: '#B45309',
-  },
-  scoreMovementCard: {
-    marginTop: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#DDEBDD',
-  },
-  scoreMovementLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#6A7A6A',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  scoreMovementValue: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#2F3E2F',
-    lineHeight: 20,
-  },
-  scoreMovementSubvalue: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#667085',
-  },
-  scoreActivityStrip: {
-    marginTop: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#DDEBDD',
-  },
-  scoreActivityLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#6A7A6A',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  scoreActivityValue: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#2F3E2F',
-  },
-  statRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 4,
-    backgroundColor: '#fff',
-  },
-  statCard: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    minHeight: 92,
-  },
-  statCardActive: {
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  statLabel: {
-    fontSize: 12,
-    opacity: 0.72,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  statLabelActive: {
-    opacity: 1,
-    color: '#111827',
-  },
-  statValue: {
-    marginTop: 4,
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#111',
-  },
-  statValueActive: {
-    color: '#111',
-  },
-  statMeta: {
-    marginTop: 6,
-    opacity: 0.8,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  statMetaActive: {
-    opacity: 1,
-    color: '#334155',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-  },
-  summaryCard: {
-    flex: 1,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-  },
-  summaryCardGreen: {
-    backgroundColor: '#F0FBF0',
-    borderColor: '#C8E6C9',
-  },
-  summaryCardRed: {
-    backgroundColor: '#FFF0F0',
-    borderColor: '#FFCDD2',
-  },
-  summaryCardGreenActive: {
-    backgroundColor: '#1B5E20',
-    borderColor: '#1B5E20',
-    borderWidth: 1,
-  },
-  summaryCardRedActive: {
-    backgroundColor: '#B71C1C',
-    borderColor: '#B71C1C',
-    borderWidth: 1,
-  },
-  summaryTextActive: {
-    color: '#fff',
-  },
-  sectionHeadText: {
-    paddingHorizontal: 12,
-    paddingTop: 16,
-    paddingBottom: 6,
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6B7280',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    backgroundColor: '#f7f7f7',
-  },
-  sectionEmptyWrap: {
-    marginHorizontal: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#E5E7EB',
-  },
-  sectionEmptyText: {
-    color: '#9CA3AF',
-    fontWeight: '600',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  summaryLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#555',
-    marginBottom: 4,
-  },
-  summaryAmount: {
-    fontSize: 26,
-    fontWeight: '900',
-    lineHeight: 30,
-  },
-  summaryMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#888',
-  },
-  activityHeader: {
-    paddingHorizontal: 12,
-    paddingTop: 16,
-    paddingBottom: 8,
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#111',
-    backgroundColor: '#f7f7f7',
-  },
-  headerNextUpWrap: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-  },
-  nextCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-  },
-  nextHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  nextEyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#666',
-    textTransform: 'uppercase',
-  },
-  nextTitle: {
-    marginTop: 10,
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#111',
-  },
-  nextMetaRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  nextAmount: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: IOU_GREEN,
-  },
-  nextDate: {
-    color: '#666',
-    fontWeight: '600',
-  },
-  progressSection: {
-    marginTop: 10,
-  },
-  progressHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#444',
-    textTransform: 'uppercase',
-  },
-  progressValue: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: IOU_GREEN,
-  },
-  progressTrack: {
-    marginTop: 6,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: '#EAEAEA',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: IOU_GREEN,
-  },
-  progressSubtext: {
-    marginTop: 6,
-    color: '#666',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  nextActionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-  },
-  nextActionBtn: {
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  nextActionGreen: {
-    backgroundColor: IOU_GREEN,
-  },
-  nextActionBlue: {
-    backgroundColor: BLUE,
-  },
-  nextActionOrange: {
-    backgroundColor: ORANGE,
-  },
-  nextActionConfirm: {
-    backgroundColor: BLUE,
-  },
-  nextActionNeutral: {
-    backgroundColor: '#EEF2F5',
-  },
-  nextActionText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  nextActionTextDark: {
-    color: '#222',
-  },
-  errorBanner: {
-    margin: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: '#FFEBEE',
-    borderWidth: 1,
-    borderColor: '#F8BBD0',
-  },
-  errorTitle: {
-    color: '#C62828',
-    fontWeight: '700',
-  },
-  errorText: {
-    color: '#C62828',
-    marginTop: 4,
-    opacity: 0.8,
-  },
-  rowCard: {
-    marginHorizontal: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-  },
-  rowInner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-  },
-  avatarCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    color: '#fff',
-    fontWeight: '900',
-    fontSize: 16,
-  },
-  rowContent: {
-    flex: 1,
-  },
-  rowPersonName: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#111827',
-    flex: 1,
-  },
-  rowSubLine: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#667085',
-  },
-  rowAmountLine: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
-    marginTop: 1,
-  },
-  rowTagLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-    flexWrap: 'wrap',
-  },
-  dirTag: {
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    flexShrink: 0,
-  },
-  dirTagText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  rowStatusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  rowTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  rowAmountRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-    marginTop: 4,
-  },
-  rowAmount: {
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  rowDueDate: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  rowBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-    flexWrap: 'wrap',
-  },
-  statusChip: {
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  statusChipText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  rowTitleMuted: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#9CA3AF',
-    flexShrink: 1,
-  },
-  leftAction: {
-    width: 150,
-    marginVertical: 2,
-    marginLeft: 8,
-    borderRadius: 12,
-    backgroundColor: BLUE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rightActionPay: {
-    width: 150,
-    marginVertical: 2,
-    marginRight: 8,
-    borderRadius: 12,
-    backgroundColor: IOU_GREEN,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rightActionRemind: {
-    width: 150,
-    marginVertical: 2,
-    marginRight: 8,
-    borderRadius: 12,
-    backgroundColor: ORANGE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rightActionConfirm: {
-    width: 150,
-    marginVertical: 2,
-    marginRight: 8,
-    borderRadius: 12,
-    backgroundColor: BLUE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sideActionText: {
-    fontWeight: '800',
-    color: '#fff',
-    fontSize: 16,
-  },
-  emptyWrap: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  emptyText: {
-    opacity: 0.6,
-  },
-  splitReceiptCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0F9F0',
-    marginHorizontal: 12,
-    marginTop: 8,
-    marginBottom: 0,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#C8E6C9',
-  },
-  splitReceiptIcon: {
-    width: 30,
-    height: 36,
-    backgroundColor: 'rgba(27,94,32,0.08)',
-    borderRadius: 5,
-    padding: 5,
-    gap: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  splitReceiptIconLine: {
-    height: 2,
-    width: '100%',
-    backgroundColor: '#2E7D32',
-    borderRadius: 2,
-  },
-  splitReceiptText: {
-    flex: 1,
-    gap: 2,
-  },
-  splitReceiptTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1B5E20',
-  },
-  splitReceiptSub: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#4B7A4B',
-  },
-  splitReceiptArrow: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#4B7A4B',
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 24,
-    backgroundColor: IOU_GREEN,
-    borderRadius: 28,
-    paddingHorizontal: 18,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
-  },
-  fabText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  inboxToast: {
-    position: 'absolute',
-    top: 10,
-    left: 12,
-    right: 12,
-    zIndex: 100,
-  },
-  inboxToastInner: {
-    backgroundColor: '#1E3A5F',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.14,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 8,
-  },
-  inboxToastTitle: {
-    color: '#fff',
-    fontWeight: '900',
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  inboxToastSub: {
-    marginTop: 3,
-    color: '#93C5FD',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-});
-
 const RED_BADGE = '#ef4444';
 
-const headerS = StyleSheet.create({
+const makeStyles = (t: AppTheme) => StyleSheet.create({
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  listContent: { paddingBottom: 120, paddingTop: 0 },
+
+  // ── banners ──────────────────────────────────────────────────────
+  verifyBanner: {
+    margin: 12, marginBottom: 0, padding: 14, borderRadius: 12,
+    backgroundColor: t.isDark ? '#1A1000' : '#FFF3E0',
+    borderWidth: 1, borderColor: t.isDark ? '#2A1A00' : '#FFCC80',
+  },
+  verifyTitle: { fontWeight: '800', fontSize: 14, marginBottom: 4, color: t.isDark ? '#FBBF24' : '#92400E' },
+  verifyText: { fontSize: 13, color: t.isDark ? '#D97706' : '#78350F', opacity: 0.9 },
+  errorBanner: {
+    margin: 12, padding: 14, borderRadius: 12,
+    backgroundColor: t.isDark ? '#1A0505' : '#FFEBEE',
+    borderWidth: 1, borderColor: t.isDark ? '#2A0D0D' : '#F8BBD0',
+  },
+  errorTitle: { color: t.isDark ? '#FF6B6B' : '#C62828', fontWeight: '700', fontSize: 14 },
+  errorText: { color: t.isDark ? '#FF6B6B' : '#C62828', marginTop: 4, fontSize: 13, opacity: 0.85 },
+
+  // ── summary cards ─────────────────────────────────────────────────
+  summaryRow: {
+    flexDirection: 'row', gap: 12, paddingHorizontal: 12,
+    paddingVertical: 12, backgroundColor: t.surface,
+  },
+  summaryCard: { flex: 1, borderRadius: 14, padding: 16, borderWidth: 1 },
+  summaryCardOwed: {
+    backgroundColor: t.isDark ? t.positiveSurface : '#F2FAF2',
+    borderColor: t.isDark ? t.positiveBorder : '#C8E6C9',
+  },
+  summaryCardOwe: {
+    backgroundColor: t.isDark ? t.negativeSurface : '#FFF5F5',
+    borderColor: t.isDark ? t.negativeBorder : '#FFCDD2',
+  },
+  summaryCardGreenActive: {
+    borderColor: t.isDark ? t.brandBright : '#4CAF50',
+    borderWidth: 1.5,
+    backgroundColor: t.isDark ? t.activeTabSurface : '#E8F5E9',
+  },
+  summaryCardRedActive: {
+    borderColor: t.isDark ? t.negativeBorder : '#EF9A9A',
+    borderWidth: 1.5,
+    backgroundColor: t.isDark ? t.negativeSurface : '#FFEBEE',
+  },
+  summaryLabel: {
+    fontSize: 11, fontWeight: '700', color: t.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8,
+  },
+  summaryAmount: { fontSize: 30, fontWeight: '900', lineHeight: 34, letterSpacing: -0.5 },
+  summaryCount: { marginTop: 6, fontSize: 12, fontWeight: '600', color: t.textMuted },
+  summaryStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
+  summaryDot: { width: 7, height: 7, borderRadius: 999 },
+  summaryStatus: { fontSize: 13, fontWeight: '700' },
+
+  // ── split receipt ─────────────────────────────────────────────────
+  splitReceiptCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: t.surface, marginHorizontal: 12, marginTop: 10,
+    borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16,
+    borderWidth: 1, borderColor: t.border,
+    shadowColor: '#000', shadowOpacity: t.isDark ? 0 : 0.05, shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 }, elevation: t.isDark ? 0 : 1,
+  },
+  splitReceiptContent: { flex: 1, gap: 3 },
+  splitReceiptTitle: { fontSize: 15, fontWeight: '700', color: t.textPrimary },
+  splitReceiptSub: { fontSize: 13, fontWeight: '500', color: t.textSecondary },
+  splitReceiptCta: {
+    backgroundColor: IOU_GREEN, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8,
+  },
+  splitReceiptCtaText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  // ── section headers ──────────────────────────────────────────────
+  sectionHeadText: {
+    paddingHorizontal: 12, paddingTop: 22, paddingBottom: 8,
+    fontSize: 13, fontWeight: '700', color: t.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.6, backgroundColor: t.background,
+  },
+  sectionEmptyWrap: {
+    marginHorizontal: 12, paddingVertical: 18, paddingHorizontal: 16,
+    backgroundColor: t.surface, borderRadius: 12, borderWidth: 1, borderColor: t.border,
+  },
+  sectionEmptyText: { color: t.textSecondary, fontWeight: '600', fontSize: 14, textAlign: 'center' },
+
+  // ── activity rows ─────────────────────────────────────────────────
+  rowCard: {
+    marginHorizontal: 12, paddingVertical: 16, paddingHorizontal: 14,
+    borderRadius: 14, borderWidth: 1, borderColor: t.border,
+    backgroundColor: t.surface, overflow: 'hidden',
+    shadowColor: '#000', shadowOpacity: t.isDark ? 0 : 0.05, shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 }, elevation: t.isDark ? 0 : 1,
+  },
+  rowCardCompleted: { backgroundColor: t.surfaceMuted, shadowOpacity: 0, elevation: 0 },
+  rowInner: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  rowContent: { flex: 1, gap: 6 },
+  rowTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  rowPersonName: { fontSize: 16, fontWeight: '800', color: t.textPrimary, flex: 1 },
+  rowAmount: { fontSize: 18, fontWeight: '800', flexShrink: 0 },
+  rowMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  rowDueDate: { fontSize: 14, fontWeight: '600', color: t.textSecondary, flex: 1 },
+  statusChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  statusChipText: { fontSize: 12, fontWeight: '700' },
+  rowTitleMuted: { fontSize: 13, fontWeight: '600', color: t.textSecondary },
+
+  // ── swipe actions ─────────────────────────────────────────────────
+  leftAction: {
+    width: 150, marginVertical: 2, marginLeft: 8, borderRadius: 12,
+    backgroundColor: BLUE, justifyContent: 'center', alignItems: 'center',
+  },
+  rightActionPay: {
+    width: 150, marginVertical: 2, marginRight: 8, borderRadius: 12,
+    backgroundColor: IOU_GREEN, justifyContent: 'center', alignItems: 'center',
+  },
+  rightActionRemind: {
+    width: 150, marginVertical: 2, marginRight: 8, borderRadius: 12,
+    backgroundColor: ORANGE, justifyContent: 'center', alignItems: 'center',
+  },
+  rightActionConfirm: {
+    width: 150, marginVertical: 2, marginRight: 8, borderRadius: 12,
+    backgroundColor: BLUE, justifyContent: 'center', alignItems: 'center',
+  },
+  sideActionText: { fontWeight: '800', color: '#fff', fontSize: 16 },
+
+  // ── inbox toast ──────────────────────────────────────────────────
+  inboxToast: { position: 'absolute', top: 10, left: 12, right: 12, zIndex: 100 },
+  inboxToastInner: {
+    backgroundColor: '#1E3A5F', borderRadius: 14, paddingVertical: 12,
+    paddingHorizontal: 16, shadowColor: '#000', shadowOpacity: 0.14,
+    shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8,
+  },
+  inboxToastTitle: { color: '#fff', fontWeight: '900', fontSize: 15, lineHeight: 21 },
+  inboxToastSub: { marginTop: 3, color: '#93C5FD', fontWeight: '700', fontSize: 13 },
+});
+
+const makeHeaderStyles = (t: AppTheme) => StyleSheet.create({
   sideBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1700,12 +1069,12 @@ const headerS = StyleSheet.create({
     gap: 5,
   },
   sideBtnText: {
-    color: '#fff',
+    color: t.isDark ? '#FFFFFF' : '#1B5E20',
     fontWeight: '600',
     fontSize: 15,
   },
   logoBadge: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 3,

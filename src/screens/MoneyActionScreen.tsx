@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  StatusBar,
 } from "react-native";
 
 const BRAND = "#1B5E20";
@@ -131,7 +130,7 @@ export default function MoneyActionScreen({ navigation }: any) {
 
   return (
     <View style={s.screen}>
-      <StatusBar barStyle="dark-content" />
+
 
       <View style={s.handle} />
 

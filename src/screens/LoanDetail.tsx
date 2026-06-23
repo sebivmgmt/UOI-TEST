@@ -1,6 +1,7 @@
 // src/screens/LoanDetail.tsx
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useAppTheme, AppTheme } from '../theme';
 import {
   View,
   Text,
@@ -8,6 +9,8 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  ScrollView,
+  SectionList,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
@@ -106,6 +109,55 @@ function isScoreV22Progress(v: unknown): v is ScoreV22Progress {
 }
 
 // ---------------------------------------------
+// TAB / SCENARIO TYPES
+// ---------------------------------------------
+
+type TabId = 'overview' | 'payments' | 'score';
+type ScenarioId = 'pay_next_today' | 'payoff_today' | 'complete_on_schedule';
+
+type IouScoreScenario = {
+  scenario: ScenarioId;
+  eligible: boolean;
+  paymentAmountCents: number | null;
+  currentScore: number;
+  projectedScore: number;
+  scoreDelta: number;
+  currentVisibleTrust: number;
+  projectedVisibleTrust: number;
+  visibleTrustDelta: number;
+  currentIouEffect: number;
+  projectedIouEffect: number;
+  currentExposure: number;
+  projectedExposure: number;
+  exposureReleased: number;
+  completionCreditUnlocked: number;
+  earlyBonusUnlocked: number;
+  retainedPenalty: number;
+  completesIou: boolean;
+  explanation: string[];
+};
+
+function isIouScoreScenario(v: unknown): v is IouScoreScenario {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.scenario === 'string' &&
+    typeof r.eligible === 'boolean' &&
+    typeof r.currentScore === 'number' &&
+    typeof r.projectedScore === 'number' &&
+    typeof r.scoreDelta === 'number' &&
+    typeof r.currentVisibleTrust === 'number' &&
+    typeof r.projectedVisibleTrust === 'number' &&
+    typeof r.visibleTrustDelta === 'number' &&
+    typeof r.completesIou === 'boolean' &&
+    Array.isArray(r.explanation)
+  );
+}
+
+// Payment section data for the Payments tab SectionList
+type PaymentSectionData = { title: string; data: PaymentRow[] };
+
+// ---------------------------------------------
 // CONSTANTS
 // ---------------------------------------------
 
@@ -141,19 +193,19 @@ const formatDate = (dateStr: string): string => {
 
 // ── DEV-only Score v2.2 progress card ────────────────────────────────────────
 
-const sv = StyleSheet.create({
+const makeSv = (t: AppTheme) => StyleSheet.create({
   card: {
     marginTop: 14,
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: t.border,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
+    shadowOpacity: t.isDark ? 0 : 0.05,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    elevation: t.isDark ? 0 : 1,
   },
   header: {
     flexDirection: 'row',
@@ -164,7 +216,7 @@ const sv = StyleSheet.create({
   headerTitle: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#374151',
+    color: t.textSecondary,
   },
   headerRight: {
     flexDirection: 'row',
@@ -187,14 +239,14 @@ const sv = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: t.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: t.border,
   },
   refreshBtnText: {
-    color: '#374151',
+    color: t.textSecondary,
     fontWeight: '700',
     fontSize: 16,
     lineHeight: 20,
@@ -206,36 +258,35 @@ const sv = StyleSheet.create({
     paddingVertical: 8,
   },
   stateText: {
-    color: '#4B5563',
+    color: t.textSecondary,
     fontSize: 14,
   },
   unavailableBox: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: t.negativeSurface,
     borderRadius: 8,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: t.isDark ? '#3A0D0D' : '#FECACA',
   },
   unavailableText: {
-    color: '#991B1B',
+    color: t.negative,
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 19,
   },
   divider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: t.divider,
     marginVertical: 16,
   },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#6B7280',
+    color: t.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 8,
   },
-  // Hero — current score effect
   heroRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -256,10 +307,9 @@ const sv = StyleSheet.create({
   heroCaption: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#374151',
+    color: t.textSecondary,
     lineHeight: 20,
   },
-  // Repayment
   repayRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -269,17 +319,17 @@ const sv = StyleSheet.create({
   repayAmount: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#111827',
+    color: t.textPrimary,
   },
   repayPct: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#6B7280',
+    color: t.textMuted,
   },
   bar: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#EAEAEA',
+    backgroundColor: t.isDark ? '#1A1A1A' : '#EAEAEA',
     overflow: 'hidden',
   },
   barFillGreen: {
@@ -290,7 +340,7 @@ const sv = StyleSheet.create({
   miniBar: {
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#EAEAEA',
+    backgroundColor: t.isDark ? '#1A1A1A' : '#EAEAEA',
     overflow: 'hidden',
     marginTop: 6,
   },
@@ -299,7 +349,6 @@ const sv = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: BLUE,
   },
-  // Pending progress section
   pendingSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -307,44 +356,43 @@ const sv = StyleSheet.create({
     marginBottom: 12,
   },
   lockedChip: {
-    backgroundColor: '#FFF7ED',
+    backgroundColor: t.isDark ? '#1A1000' : '#FFF7ED',
     borderRadius: 5,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: '#FED7AA',
+    borderColor: t.isDark ? '#2A1400' : '#FED7AA',
   },
   lockedChipText: {
-    color: '#C2410C',
+    color: t.isDark ? t.warning : '#C2410C',
     fontSize: 11,
     fontWeight: '700',
   },
   unlockedChip: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: t.positiveSurface,
     borderRadius: 5,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: '#BBF7D0',
+    borderColor: t.isDark ? '#0D3A15' : '#BBF7D0',
   },
   unlockedChipText: {
-    color: '#15803D',
+    color: t.positive,
     fontSize: 11,
     fontWeight: '700',
   },
   metricLine: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#111827',
+    color: t.textPrimary,
     marginBottom: 2,
   },
   earlyBonusLine: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: t.textSecondary,
     marginBottom: 2,
   },
-  // Projected at completion
   projectedRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -354,38 +402,36 @@ const sv = StyleSheet.create({
   projectedValue: {
     fontSize: 32,
     fontWeight: '900',
-    color: '#111827',
+    color: t.textPrimary,
     letterSpacing: -0.5,
   },
   projectedUnit: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#6B7280',
+    color: t.textMuted,
     paddingBottom: 4,
   },
   projectedNote: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#4B5563',
+    color: t.textSecondary,
     lineHeight: 19,
   },
-  // Locked-state explanation (after projected)
   lockedExplanation: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: t.divider,
     fontSize: 13,
     fontWeight: '500',
-    color: '#374151',
+    color: t.textSecondary,
     lineHeight: 20,
   },
-  // Active penalty
   penaltyBlock: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
+    backgroundColor: t.negativeSurface,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -393,34 +439,33 @@ const sv = StyleSheet.create({
   penaltyLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#991B1B',
+    color: t.negative,
   },
   penaltyNote: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#6B7280',
+    color: t.textMuted,
     marginTop: 2,
   },
   penaltyValue: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#DC2626',
+    color: t.negative,
   },
-  // Technical details
   techToggle: {
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: t.border,
   },
   techToggleText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6B7280',
+    color: t.textMuted,
   },
   techBox: {
     marginTop: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: t.surfaceMuted,
     borderRadius: 8,
     padding: 10,
     gap: 3,
@@ -428,7 +473,7 @@ const sv = StyleSheet.create({
   techLine: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#6B7280',
+    color: t.textMuted,
     lineHeight: 17,
   },
 });
@@ -438,12 +483,16 @@ function ScoreV22DevCard({
   loading,
   error,
   onRefresh,
+  showDevBadge = true,
 }: {
   data: ScoreV22Progress | null;
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  showDevBadge?: boolean;
 }) {
+  const theme = useAppTheme();
+  const sv = useMemo(() => makeSv(theme), [theme]);
   const [techOpen, setTechOpen] = useState(false);
 
   const repayPct = data ? Math.min(100, Math.round(data.repayment_fraction * 100)) : 0;
@@ -458,9 +507,9 @@ function ScoreV22DevCard({
 
   const effectColor =
     !data || data.current_public_score_effect === 0
-      ? '#6B7280'
+      ? theme.textMuted
       : data.current_public_score_effect < 0
-        ? '#DC2626'
+        ? theme.negative
         : GREEN;
 
   const heroCaption = !data
@@ -494,9 +543,11 @@ function ScoreV22DevCard({
       <View style={sv.header}>
         <Text style={sv.headerTitle}>IOU Score Progress</Text>
         <View style={sv.headerRight}>
-          <View style={sv.devBadge}>
-            <Text style={sv.devBadgeText}>DEV</Text>
-          </View>
+          {showDevBadge && (
+            <View style={sv.devBadge}>
+              <Text style={sv.devBadgeText}>DEV</Text>
+            </View>
+          )}
           <TouchableOpacity
             onPress={onRefresh}
             style={sv.refreshBtn}
@@ -675,6 +726,185 @@ function ScoreV22DevCard({
   );
 }
 
+// ---------------------------------------------
+// SCORE PROJECTION CARD
+// ---------------------------------------------
+
+const makeSp = (t: AppTheme) => StyleSheet.create({
+  card: {
+    marginTop: 14,
+    backgroundColor: t.surface,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: t.border,
+    shadowColor: '#000',
+    shadowOpacity: t.isDark ? 0 : 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: t.isDark ? 0 : 1,
+  },
+  centerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 8 },
+  loadingText: { color: t.textMuted, fontSize: 14, fontWeight: '500', marginTop: 8 },
+  unavailTitle: { fontSize: 15, fontWeight: '800', color: t.textPrimary, marginBottom: 6 },
+  unavailBody: { fontSize: 13, fontWeight: '500', color: t.textSecondary, lineHeight: 20 },
+  retryBtn: {
+    marginTop: 12, alignSelf: 'flex-start',
+    backgroundColor: t.surfaceMuted, borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderWidth: 1, borderColor: t.border,
+  },
+  retryBtnText: { fontSize: 13, fontWeight: '700', color: t.textSecondary },
+  ineligibleTitle: { fontSize: 14, fontWeight: '700', color: t.textMuted, marginBottom: 6 },
+  ineligibleBody: { fontSize: 13, fontWeight: '500', color: t.textSecondary, lineHeight: 20 },
+  projLabel: { fontSize: 12, fontWeight: '600', color: t.textMuted, lineHeight: 18, marginBottom: 10 },
+  scoreArrow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  scoreFrom: { fontSize: 36, fontWeight: '900', color: t.textMuted, letterSpacing: -1 },
+  scoreArrowText: { fontSize: 22, fontWeight: '700', color: t.textMuted },
+  scoreTo: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  scoreDelta: { fontSize: 16, fontWeight: '700', alignSelf: 'flex-end', paddingBottom: 4 },
+  trustDelta: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  detailsSection: { marginTop: 12, borderTopWidth: 1, borderTopColor: t.divider, paddingTop: 12, gap: 8 },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  detailLabel: { fontSize: 13, fontWeight: '500', color: t.textSecondary },
+  detailValue: { fontSize: 13, fontWeight: '700' },
+  completesRow: { marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: t.divider },
+  completesText: { fontSize: 13, fontWeight: '700' },
+  explanationSection: { marginTop: 12, borderTopWidth: 1, borderTopColor: t.divider, paddingTop: 12, gap: 4 },
+  explanationLine: { fontSize: 12, fontWeight: '500', color: t.textSecondary, lineHeight: 19 },
+});
+
+function ScoreProjectionCard({
+  data,
+  loading,
+  error,
+  onRetry,
+}: {
+  data: IouScoreScenario | null;
+  loading: boolean;
+  error: string | null;
+  onRetry?: () => void;
+}) {
+  const theme = useAppTheme();
+  const sp = useMemo(() => makeSp(theme), [theme]);
+
+  if (loading) {
+    return (
+      <View style={sp.card}>
+        <View style={sp.centerRow}>
+          <ActivityIndicator size="small" color={BLUE} />
+          <Text style={sp.loadingText}>Loading estimate…</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!data || error) {
+    return (
+      <View style={sp.card}>
+        <Text style={sp.unavailTitle}>Score estimate unavailable</Text>
+        <Text style={sp.unavailBody}>
+          Unable to load the projection for this scenario.
+        </Text>
+        {!!onRetry && (
+          <TouchableOpacity
+            style={sp.retryBtn}
+            onPress={onRetry}
+            accessibilityRole="button"
+            accessibilityLabel="Retry score estimate"
+          >
+            <Text style={sp.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  // Backend returned eligible: false — scenario not currently available for this IOU
+  if (!data.eligible) {
+    return (
+      <View style={sp.card}>
+        <Text style={sp.ineligibleTitle}>Not available</Text>
+        <Text style={sp.ineligibleBody}>
+          {data.explanation[0] ?? 'This scenario is not currently eligible for this IOU.'}
+        </Text>
+      </View>
+    );
+  }
+
+  const deltaSign = data.scoreDelta >= 0 ? '+' : '';
+  const trustDeltaSign = data.visibleTrustDelta >= 0 ? '+' : '';
+
+  return (
+    <View style={sp.card}>
+      <Text style={sp.projLabel}>
+        Estimated after this payment is successfully confirmed
+      </Text>
+
+      {/* Score hero */}
+      <View style={sp.scoreArrow}>
+        <Text style={sp.scoreFrom}>{data.currentScore}</Text>
+        <Text style={sp.scoreArrowText}>→</Text>
+        <Text style={[sp.scoreTo, { color: data.scoreDelta >= 0 ? theme.positive : theme.negative }]}>
+          {data.projectedScore}
+        </Text>
+        <Text style={[sp.scoreDelta, { color: data.scoreDelta >= 0 ? theme.positive : theme.negative }]}>
+          ({deltaSign}{data.scoreDelta})
+        </Text>
+      </View>
+
+      {/* Visible Trust delta */}
+      {data.visibleTrustDelta !== 0 && (
+        <Text style={[sp.trustDelta, { color: data.visibleTrustDelta >= 0 ? theme.positive : theme.negative }]}>
+          Estimated {trustDeltaSign}{data.visibleTrustDelta} Visible Trust
+        </Text>
+      )}
+
+      {/* Details */}
+      <View style={sp.detailsSection}>
+        {data.exposureReleased > 0 && (
+          <View style={sp.detailRow}>
+            <Text style={sp.detailLabel}>Exposure released</Text>
+            <Text style={[sp.detailValue, { color: theme.positive }]}>−{data.exposureReleased} pts</Text>
+          </View>
+        )}
+        {data.completionCreditUnlocked > 0 && (
+          <View style={sp.detailRow}>
+            <Text style={sp.detailLabel}>Completion credit</Text>
+            <Text style={[sp.detailValue, { color: theme.positive }]}>+{data.completionCreditUnlocked} pts</Text>
+          </View>
+        )}
+        {data.earlyBonusUnlocked > 0 && (
+          <View style={sp.detailRow}>
+            <Text style={sp.detailLabel}>Early-payment bonus</Text>
+            <Text style={[sp.detailValue, { color: theme.positive }]}>+{data.earlyBonusUnlocked} pts</Text>
+          </View>
+        )}
+        {data.retainedPenalty > 0 && (
+          <View style={sp.detailRow}>
+            <Text style={sp.detailLabel}>Penalty remains</Text>
+            <Text style={[sp.detailValue, { color: theme.negative }]}>−{data.retainedPenalty} pts</Text>
+          </View>
+        )}
+        {data.completesIou && (
+          <View style={sp.completesRow}>
+            <Text style={[sp.completesText, { color: theme.positive }]}>This payment completes the IOU</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Explanation bullet lines */}
+      {data.explanation.length > 0 && (
+        <View style={sp.explanationSection}>
+          {data.explanation.map((line, i) => (
+            <Text key={i} style={sp.explanationLine}>· {line}</Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // Tracks which IOU ids have already shown the swipe nudge this session
 const shownSwipeNudge = new Set<string>();
 const shownConfirmNudge = new Set<string>();
@@ -684,6 +914,9 @@ const shownConfirmNudge = new Set<string>();
 // ---------------------------------------------
 
 export default function LoanDetail({ route, navigation }: any) {
+  const theme = useAppTheme();
+  const s = useMemo(() => makeS(theme), [theme]);
+
   // -------------------------------------------
   // ROUTE PARAMS
   // -------------------------------------------
@@ -716,6 +949,15 @@ export default function LoanDetail({ route, navigation }: any) {
   const [scoreV22Loading, setScoreV22Loading] = useState(false);
   const [scoreV22Error, setScoreV22Error] = useState<string | null>(null);
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+
+  // Score Impact scenario state
+  const [scoreScenario, setScoreScenario] = useState<ScenarioId>('pay_next_today');
+  const [scenarioData, setScenarioData] = useState<Partial<Record<ScenarioId, IouScoreScenario>>>({});
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
+
   // -------------------------------------------
   // AUTH
   // -------------------------------------------
@@ -726,9 +968,12 @@ export default function LoanDetail({ route, navigation }: any) {
     });
   }, []);
 
-  useEffect(() => {
-    navigation.setOptions({ title: iou?.title ?? 'IOU Details' });
-  }, [iou, navigation]);
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: iou?.title ?? 'IOU Details',
+      statusBarStyle: (theme.isDark ? 'light' : 'dark') as 'light' | 'dark',
+    });
+  }, [iou, navigation, theme.isDark]);
 
   // -------------------------------------------
   // DATA FETCHING
@@ -866,6 +1111,9 @@ export default function LoanDetail({ route, navigation }: any) {
   useFocusEffect(
     useCallback(() => {
       void fetchAll();
+      // Clear scenario cache on focus — screen may have been left for a payment flow.
+      setScenarioData({});
+      setScenarioError(null);
     }, [fetchAll])
   );
 
@@ -895,6 +1143,34 @@ export default function LoanDetail({ route, navigation }: any) {
       setScoreV22Error('Score v2.2 progress is unavailable for this IOU.');
     } finally {
       setScoreV22Loading(false);
+    }
+  }, [iouId]);
+
+  // Fetch a score scenario projection from the backend.
+  // If the RPC doesn't exist yet, surfaces "Score estimate unavailable" gracefully.
+  const fetchScoreScenario = useCallback(async (scenario: ScenarioId) => {
+    if (!iouId) return;
+    setScenarioLoading(true);
+    setScenarioError(null);
+    try {
+      const { data: raw, error: rpcErr } = await supabase.rpc('get_my_iou_score_v22_scenario', {
+        p_iou_id: iouId,
+        p_scenario: scenario,
+      });
+      if (rpcErr) {
+        setScenarioError('Score estimate unavailable');
+        return;
+      }
+      if (!isIouScoreScenario(raw)) {
+        setScenarioError('Score estimate unavailable');
+        return;
+      }
+      setScenarioData(prev => ({ ...prev, [scenario]: raw }));
+      setScenarioError(null);
+    } catch {
+      setScenarioError('Score estimate unavailable');
+    } finally {
+      setScenarioLoading(false);
     }
   }, [iouId]);
 
@@ -951,6 +1227,18 @@ export default function LoanDetail({ route, navigation }: any) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [iou?.id, me, fetchScoreV22Progress]);
 
+  // Score Impact tab: fetch progress + scenario when user opens the tab
+  useEffect(() => {
+    if (activeTab !== 'score' || !iouId || !isBorrower) return;
+    if (!scoreV22Data && !scoreV22Loading) {
+      void fetchScoreV22Progress();
+    }
+    if (!scenarioData[scoreScenario] && !scenarioLoading) {
+      void fetchScoreScenario(scoreScenario);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, iouId, isBorrower]);
+
   // DEV: refetch on every screen focus so score data stays current after payments
   useFocusEffect(
     useCallback(() => {
@@ -1006,6 +1294,22 @@ export default function LoanDetail({ route, navigation }: any) {
       Math.max(totalInstallments, rows.length) - paidInstallments
     );
   }, [paidInstallments, rows.length, totalInstallments]);
+
+  // Payment sections for the Payments tab SectionList
+  const paymentSectionData = useMemo((): PaymentSectionData[] => {
+    const unpaid = rows.filter(r => !r.paid_at && r.status !== 'pending_confirmation' && r.status !== 'processing');
+    const pending = rows.filter(r => !r.paid_at && (r.status === 'pending_confirmation' || r.status === 'processing'));
+    const paid = rows.filter(r => !!r.paid_at);
+    const sections: PaymentSectionData[] = [];
+    if (unpaid.length > 0) {
+      const firstLabel = unpaid[0].status === 'late' ? 'Overdue' : 'Next';
+      sections.push({ title: firstLabel, data: [unpaid[0]] });
+      if (unpaid.length > 1) sections.push({ title: 'Upcoming', data: unpaid.slice(1) });
+    }
+    if (pending.length > 0) sections.push({ title: 'Pending', data: pending });
+    if (paid.length > 0) sections.push({ title: 'Completed', data: paid });
+    return sections;
+  }, [rows]);
 
   const pendingCount = useMemo(
     () =>
@@ -1229,6 +1533,8 @@ export default function LoanDetail({ route, navigation }: any) {
       }
 
       await Promise.all([fetchIou(), fetchPayments()]);
+      setScenarioData({});
+      setScenarioError(null);
 
       Alert.alert(
         'Payment confirmed',
@@ -1270,6 +1576,8 @@ export default function LoanDetail({ route, navigation }: any) {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    setScenarioData({});
+    setScenarioError(null);
     try {
       await Promise.all([fetchIou(), fetchPayments()]);
     } finally {
@@ -1324,6 +1632,8 @@ export default function LoanDetail({ route, navigation }: any) {
                   });
                   if (error) throw error;
                   await Promise.all([fetchIou(), fetchPayments()]);
+                  setScenarioData({});
+                  setScenarioError(null);
                   Alert.alert('Dev: Confirmed', `payment_id: ${item.id}\n\nNow run Dev: Log Payment Outcome with this id — expect reason=payment_outcome_already_logged`);
                 } catch (e: any) {
                   Alert.alert('Dev: Confirm failed', e?.message ?? String(e));
@@ -1431,26 +1741,66 @@ export default function LoanDetail({ route, navigation }: any) {
     !item.paid_at &&
     (item.status === 'scheduled' || item.status === 'late');
 
+  // Whether paying the next due payment would complete the IOU
+  const nextPaymentCompletesIou =
+    paymentsRemaining === 1 &&
+    !!nextDue &&
+    isOutgoingView && !isArchived && !isDeleted && !nextDue.paid_at &&
+    (nextDue.status === 'scheduled' || nextDue.status === 'late');
+
+  const scoreImpactLinkLabel = nextPaymentCompletesIou
+    ? 'See estimated payoff impact →'
+    : 'See estimated score impact →';
+
+  // Switch to Score Impact tab and select the relevant scenario.
+  // The score link is only shown to the borrower, so isBorrower is always true here,
+  // but guard defensively so the RPC is never called for a lender.
+  const handleScoreImpactLink = useCallback(() => {
+    const scenario: ScenarioId = nextPaymentCompletesIou ? 'payoff_today' : 'pay_next_today';
+    setScoreScenario(scenario);
+    setActiveTab('score');
+    if (isBorrower && !scenarioData[scenario] && !scenarioLoading) {
+      void fetchScoreScenario(scenario);
+    }
+  }, [nextPaymentCompletesIou, isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
+
+  // Change the selected scenario and fetch if not cached
+  const handleScenarioChange = useCallback((scenario: ScenarioId) => {
+    setScoreScenario(scenario);
+    if (isBorrower && !scenarioData[scenario] && !scenarioLoading) {
+      void fetchScoreScenario(scenario);
+    }
+  }, [isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
+
+  // Switch tab and trigger scenario fetch when opening Score Impact tab directly
+  const handleTabChange = useCallback((tab: TabId) => {
+    setActiveTab(tab);
+    if (tab === 'score' && isBorrower && !scenarioData[scoreScenario] && !scenarioLoading) {
+      void fetchScoreScenario(scoreScenario);
+    }
+  }, [scoreScenario, isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
+
   // -------------------------------------------
   // SMALL UI COMPONENTS
   // -------------------------------------------
 
   const StatusPill = ({ value }: { value: string }) => {
+    const d = theme.isDark;
     const config =
       value === 'paid'
-        ? { bg: '#DCFCE7', border: '#BBF7D0', text: '#15803D', label: 'Paid' }
+        ? { bg: d ? '#051A0A' : '#DCFCE7', border: d ? '#0D3A15' : '#BBF7D0', text: d ? '#66BB6A' : '#15803D', label: 'Paid' }
         : value === 'pending_confirmation'
-          ? { bg: '#EFF6FF', border: '#BFDBFE', text: '#1D4ED8', label: 'Pending' }
+          ? { bg: d ? '#050A1A' : '#EFF6FF', border: d ? '#0D1540' : '#BFDBFE', text: d ? '#60A5FA' : '#1D4ED8', label: 'Pending' }
           : value === 'processing'
-            ? { bg: '#EFF6FF', border: '#BFDBFE', text: '#1565C0', label: 'Processing' }
+            ? { bg: d ? '#050A1A' : '#EFF6FF', border: d ? '#0D1540' : '#BFDBFE', text: d ? '#60A5FA' : '#1565C0', label: 'Processing' }
             : value === 'late'
-              ? { bg: '#FEF2F2', border: '#FECACA', text: '#991B1B', label: 'Overdue' }
+              ? { bg: d ? '#1A0505' : '#FEF2F2', border: d ? '#3A0D0D' : '#FECACA', text: d ? '#FF6B6B' : '#991B1B', label: 'Overdue' }
               : value === 'scheduled'
-                ? { bg: '#F3F4F6', border: '#E5E7EB', text: '#374151', label: 'Autopay' }
+                ? { bg: d ? '#111111' : '#F3F4F6', border: d ? '#262626' : '#E5E7EB', text: d ? '#9CA3AF' : '#374151', label: 'Autopay' }
                 : {
-                    bg: '#F3F4F6',
-                    border: '#E5E7EB',
-                    text: '#374151',
+                    bg: d ? '#111111' : '#F3F4F6',
+                    border: d ? '#262626' : '#E5E7EB',
+                    text: d ? '#9CA3AF' : '#374151',
                     label: value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, ' '),
                   };
 
@@ -1676,14 +2026,14 @@ export default function LoanDetail({ route, navigation }: any) {
             )}
             {isOutgoingView && item.extension_status === 'approved' && !!item.extension_requested_until && (
               <View style={[s.extensionStatusPill, s.extensionApprovedPill]}>
-                <Text style={[s.extensionStatusText, { color: '#1B5E20' }]}>
+                <Text style={[s.extensionStatusText, { color: theme.isDark ? theme.brandBright : '#1B5E20' }]}>
                   Extended to {parseDateLocal(item.extension_requested_until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                 </Text>
               </View>
             )}
             {isOutgoingView && item.extension_status === 'denied' && (
               <View style={[s.extensionStatusPill, s.extensionDeniedPill]}>
-                <Text style={[s.extensionStatusText, { color: '#B42318' }]}>Extension denied — original due date applies</Text>
+                <Text style={[s.extensionStatusText, { color: theme.isDark ? theme.negative : '#B42318' }]}>Extension denied — original due date applies</Text>
               </View>
             )}
 
@@ -1786,7 +2136,7 @@ export default function LoanDetail({ route, navigation }: any) {
   if (!iouId) {
     return (
       <View style={s.center}>
-        <Text>Missing loan id.</Text>
+        <Text style={{ color: theme.textSecondary }}>Missing loan id.</Text>
       </View>
     );
   }
@@ -1794,7 +2144,7 @@ export default function LoanDetail({ route, navigation }: any) {
   if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator />
+        <ActivityIndicator color={theme.brand} />
       </View>
     );
   }
@@ -1802,146 +2152,452 @@ export default function LoanDetail({ route, navigation }: any) {
   if (!iou) {
     return (
       <View style={s.center}>
-        <Text>Loan not found.</Text>
+        <Text style={{ color: theme.textSecondary }}>Loan not found.</Text>
       </View>
     );
   }
+
+  // -------------------------------------------
+  // INNER LAYOUT COMPONENTS
+  // -------------------------------------------
+
+  const isComplete = iou.status === 'paid' || paymentsRemaining === 0;
+  const totalPayments = Math.max(totalInstallments, rows.length);
+
+  // Compact summary strip above the tabs
+  const TopSummary = () => (
+    <View style={s.topSummary}>
+      <View style={s.topRow1}>
+        <View style={[s.topDirChip, isIncomingView ? s.topDirChipIn : s.topDirChipOut]}>
+          <Text style={s.topDirChipText}>{isIncomingView ? "You're owed" : 'You owe'}</Text>
+        </View>
+        {isIncomingView && !!borrowerProfile?.public_name && (
+          <Text style={s.topPartyName} numberOfLines={1}>
+            {borrowerProfile.public_name}
+          </Text>
+        )}
+        {isComplete && (
+          <View style={s.topCompleteChip}>
+            <Text style={s.topCompleteChipText}>Completed</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={s.topAmountRow}>
+        <Text style={s.topAmount}>{currency(remainingTotal)}</Text>
+        <Text style={s.topAmountOf}>of {currency(scheduledTotal)}</Text>
+      </View>
+
+      <View style={s.topProgressRow}>
+        <View style={s.topProgressTrack}>
+          <View style={[s.topProgressFill, { width: `${progressPercent}%` as any }]} />
+        </View>
+        <Text style={s.topProgressPct}>{progressPercent}%</Text>
+        <Text style={s.topInstallments}>{paidInstallments}/{totalPayments}</Text>
+      </View>
+
+      {!!nextDue && !isComplete && (
+        <Text style={[
+          s.topNextDue,
+          nextDue.status === 'late' && { color: theme.negative },
+        ]}>
+          {nextDue.status === 'late' ? 'Overdue · ' : 'Next due '}
+          {formatDate(nextDue.due)}
+        </Text>
+      )}
+    </View>
+  );
+
+  // Segmented tab bar
+  const TabBar = () => (
+    <View style={s.tabBar} accessibilityRole="tablist">
+      {([
+        { id: 'overview' as TabId, label: 'Overview' },
+        { id: 'payments' as TabId, label: 'Payments' },
+        { id: 'score' as TabId, label: 'Score Impact' },
+      ]).map(({ id, label }) => (
+        <TouchableOpacity
+          key={id}
+          style={[s.tabItem, activeTab === id && s.tabItemActive]}
+          onPress={() => handleTabChange(id)}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === id }}
+          accessibilityLabel={label}
+        >
+          <Text style={[s.tabLabel, activeTab === id && s.tabLabelActive]}>
+            {label}
+          </Text>
+          {activeTab === id && <View style={s.tabIndicator} />}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  // Tab 1 — Overview
+  const OverviewTab = () => {
+    const freqLabel =
+      iou.frequency === 'weekly' ? 'Weekly' :
+      iou.frequency === 'biweekly' ? 'Biweekly' : 'Monthly';
+    const aprLabel = iou.apr_bps != null ? `${(iou.apr_bps / 100).toFixed(2)}%` : 'N/A';
+
+    return (
+      <ScrollView
+        contentContainerStyle={s.tabContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {/* Pending confirmation banner (lender) */}
+        {isIncomingView && incomingPendingCount > 0 && (
+          <View style={s.pendingConfirmCard}>
+            <Text style={s.pendingConfirmTitle}>Manual payment received?</Text>
+            <Text style={s.pendingConfirmBody}>
+              {incomingPendingCount === 1
+                ? 'The borrower manually submitted 1 payment outside AutoPay. Go to Payments to confirm or reject.'
+                : `The borrower manually submitted ${incomingPendingCount} payments outside AutoPay. Go to Payments to confirm each.`}
+            </Text>
+            <TouchableOpacity
+              style={s.pendingConfirmCta}
+              onPress={() => handleTabChange('payments')}
+            >
+              <Text style={s.pendingConfirmCtaText}>Go to Payments →</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Next / overdue payment info card */}
+        {!!nextDue && !isComplete && (
+          <View style={[
+            s.nextPayCard,
+            nextDue.status === 'late' && { borderColor: theme.negativeBorder },
+          ]}>
+            <Text style={[
+              s.nextPayLabel,
+              nextDue.status === 'late' && { color: theme.negative },
+            ]}>
+              {nextDue.status === 'late' ? 'Overdue payment' : 'Next payment'}
+            </Text>
+            <Text style={[
+              s.nextPayAmt,
+              nextDue.status === 'late' && { color: theme.negative },
+            ]}>
+              {currency(nextDue.amount_cents)}
+            </Text>
+            <Text style={s.nextPayDate}>Due {formatDate(nextDue.due)}</Text>
+
+            {isOutgoingView && nextDue.status === 'scheduled' && (
+              <Text style={s.nextPayMethod}>Autopay withdraws on the due date</Text>
+            )}
+            {isOutgoingView && nextDue.status === 'late' && (
+              <Text style={[s.nextPayMethod, { color: theme.negative }]}>
+                Payment was not collected — pay now to resolve
+              </Text>
+            )}
+            {isOutgoingView && nextDue.status === 'processing' && (
+              <Text style={[s.nextPayMethod, { color: BLUE }]}>ACH payment in progress</Text>
+            )}
+            {isOutgoingView && nextDue.status === 'pending_confirmation' && (
+              <Text style={[s.nextPayMethod, { color: BLUE }]}>
+                Manual payment submitted · Waiting for lender
+              </Text>
+            )}
+
+            {/* Score impact link — borrower only, when payment is eligible */}
+            {isOutgoingView && isPayEligible(nextDue) && (
+              <TouchableOpacity
+                style={s.scoreImpactLink}
+                onPress={handleScoreImpactLink}
+                accessibilityRole="button"
+                accessibilityLabel={scoreImpactLinkLabel}
+              >
+                <Text style={s.scoreImpactLinkText}>{scoreImpactLinkLabel}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Completion card */}
+        {isComplete && (
+          <View style={[s.nextPayCard, { borderColor: theme.positiveBorder }]}>
+            <Text style={[s.nextPayLabel, { color: theme.positive }]}>IOU Complete</Text>
+            <Text style={s.nextPayAmt}>{currency(scheduledTotal)}</Text>
+            <Text style={s.nextPayDate}>
+              All {totalPayments} payment{totalPayments !== 1 ? 's' : ''} made
+            </Text>
+            <Text style={[s.nextPayMethod, { marginTop: 8 }]}>
+              Completion is reflected in your trust history.
+            </Text>
+          </View>
+        )}
+
+        {/* Compact agreement grid */}
+        <View style={s.agreementCard}>
+          <View style={s.agreementHeader}>
+            <Text style={s.agreementTitle}>Agreement</Text>
+            <TouchableOpacity onPress={openFullLoan} activeOpacity={0.8}>
+              <Text style={s.contractLinkText}>View contract</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={s.agreementGrid}>
+            <View style={s.agreementItem}>
+              <Text style={s.agreementLabel}>Frequency</Text>
+              <Text style={s.agreementValue}>{freqLabel}</Text>
+            </View>
+            <View style={s.agreementItem}>
+              <Text style={s.agreementLabel}>Term</Text>
+              <Text style={s.agreementValue}>{iou.term_months} mo</Text>
+            </View>
+            <View style={s.agreementItem}>
+              <Text style={s.agreementLabel}>APR</Text>
+              <Text style={s.agreementValue}>{aprLabel}</Text>
+            </View>
+            <View style={s.agreementItem}>
+              <Text style={s.agreementLabel}>Progress</Text>
+              <Text style={s.agreementValue}>{paidInstallments}/{totalPayments}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Borrower card (lender view) */}
+        {isIncomingView && !!borrowerProfile && (
+          <TouchableOpacity
+            style={s.borrowerCard}
+            onPress={navigateToPersonProfile}
+            activeOpacity={0.92}
+          >
+            <View style={s.borrowerCardHeader}>
+              <Text style={s.borrowerCardTitle}>Borrower</Text>
+              <Text style={s.borrowerCardLink}>View profile →</Text>
+            </View>
+            <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
+            <Text style={s.borrowerScoreLine}>
+              {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
+              {'  '}
+              <Text style={s.borrowerScoreMeta}>
+                {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
+              </Text>
+            </Text>
+            <Text style={s.streakText}>{repaymentStreakText}</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    );
+  };
+
+  // Tab 2 — Payments (full schedule + all actions)
+  const PaymentsTab = () => (
+    <SectionList
+      sections={paymentSectionData}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => {
+        const origIndex = rows.findIndex(r => r.id === item.id);
+        return (
+          <PaymentRowView
+            item={item}
+            index={origIndex}
+            isFirstUnpaid={isOutgoingView && origIndex === firstUnpaidIndex}
+            isFirstConfirm={isIncomingView && origIndex === firstConfirmIndex}
+          />
+        );
+      }}
+      renderSectionHeader={({ section }) => (
+        <View style={s.sectionHeaderView}>
+          <Text style={s.sectionHeaderText}>{section.title}</Text>
+        </View>
+      )}
+      contentContainerStyle={s.tabContent}
+      ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+      stickySectionHeadersEnabled={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      ListEmptyComponent={
+        <View style={s.emptyWrap}>
+          <Text style={s.emptyText}>No payments found.</Text>
+        </View>
+      }
+      ListFooterComponent={
+        <View style={s.paymentsFooter}>
+          <View style={s.rewardCard}>
+            <Text style={s.rewardText}>{completionRewardText}</Text>
+          </View>
+          <TouchableOpacity style={s.contractBtn} onPress={openFullLoan} activeOpacity={0.8}>
+            <Text style={s.contractBtnText}>View full contract</Text>
+          </TouchableOpacity>
+        </View>
+      }
+    />
+  );
+
+  // Tab 3 — Score Impact
+  const ScoreImpactTab = () => {
+    if (!isBorrower) {
+      return (
+        <ScrollView contentContainerStyle={s.tabContent}>
+          <View style={s.scoreUnavailCard}>
+            <Text style={s.scoreUnavailTitle}>Score projections are private to the borrower</Text>
+            <Text style={s.scoreUnavailBody}>
+              The score contribution and projection details for this IOU are only available to the borrower.
+              As lender, you can view the borrower's public trust level from their profile.
+            </Text>
+          </View>
+          {!!borrowerProfile && (
+            <TouchableOpacity
+              style={s.borrowerCard}
+              onPress={navigateToPersonProfile}
+              activeOpacity={0.92}
+            >
+              <View style={s.borrowerCardHeader}>
+                <Text style={s.borrowerCardTitle}>Borrower</Text>
+                <Text style={s.borrowerCardLink}>View profile →</Text>
+              </View>
+              <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
+              <Text style={s.borrowerScoreLine}>
+                {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
+                {'  '}
+                <Text style={s.borrowerScoreMeta}>
+                  {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
+                </Text>
+              </Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+      );
+    }
+
+    // Frontend eligibility pre-filter.
+    // The backend also validates — if eligible: false comes back, the projection card shows the reason.
+    const eligibleScenarios: { id: ScenarioId; label: string; frontendEligible: boolean }[] = [
+      {
+        id: 'pay_next_today',
+        label: 'Pay next\ntoday',
+        frontendEligible: !!nextDue && isPayEligible(nextDue),
+      },
+      {
+        id: 'payoff_today',
+        label: 'Pay off\ntoday',
+        frontendEligible: isOutgoingView && !isArchived && !isDeleted && remainingTotal > 0 && rows.some(r => isPayEligible(r)),
+      },
+      {
+        id: 'complete_on_schedule',
+        label: 'On\nschedule',
+        frontendEligible: iou.status === 'open' || iou.status === 'late',
+      },
+    ];
+
+    const activeScenarioData = scenarioData[scoreScenario] ?? null;
+
+    return (
+      <ScrollView contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
+
+        {/* Current state card — uses Score v2.2 progress data */}
+        <ScoreV22DevCard
+          data={scoreV22Data}
+          loading={scoreV22Loading}
+          error={scoreV22Error}
+          onRefresh={() => { void fetchScoreV22Progress(); }}
+          showDevBadge={__DEV__}
+        />
+
+        {/* Scenario selector + projection */}
+        <View style={s.scenarioSection}>
+          <View style={s.scenarioTitleRow}>
+            <Text style={s.scenarioTitle}>Estimate if you…</Text>
+            <Text style={s.scoreV22Label}>Score v2.2 estimate — Shadow</Text>
+          </View>
+          <View style={s.scenarioRow}>
+            {eligibleScenarios.map(({ id, label, frontendEligible }) => (
+              <TouchableOpacity
+                key={id}
+                style={[
+                  s.scenarioBtn,
+                  scoreScenario === id && s.scenarioBtnActive,
+                  !frontendEligible && s.scenarioBtnDisabled,
+                ]}
+                onPress={() => frontendEligible && handleScenarioChange(id)}
+                disabled={!frontendEligible}
+                accessibilityRole="button"
+                accessibilityState={{ selected: scoreScenario === id, disabled: !frontendEligible }}
+                accessibilityLabel={label.replace('\n', ' ')}
+              >
+                <Text style={[
+                  s.scenarioBtnText,
+                  scoreScenario === id && s.scenarioBtnTextActive,
+                  !frontendEligible && s.scenarioBtnTextDisabled,
+                ]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Projection card */}
+        <ScoreProjectionCard
+          data={activeScenarioData}
+          loading={scenarioLoading}
+          error={scenarioError}
+          onRetry={() => { void fetchScoreScenario(scoreScenario); }}
+        />
+
+        {/* Disclaimer */}
+        <Text style={s.scoreDisclaimer}>
+          Estimates use your current score, this IOU's payment history, active exposure, and the current Score v2.2 rules.
+          Final results may differ if other activity changes first.
+        </Text>
+
+        {/* CTA back to pay (borrower, when eligible) */}
+        {isOutgoingView && !!nextDue && isPayEligible(nextDue) && (
+          <TouchableOpacity
+            style={s.scorePayCta}
+            onPress={() => handleTabChange('overview')}
+            accessibilityRole="button"
+          >
+            <Text style={s.scorePayCtaText}>Go to Overview to pay →</Text>
+          </TouchableOpacity>
+        )}
+
+      </ScrollView>
+    );
+  };
+
+  // Sticky action bar — primary Pay action, visible on Overview and Payments tabs
+  const StickyActionBar = () => {
+    if (!nextDue || !isPayEligible(nextDue)) return null;
+    const isLate = nextDue.status === 'late';
+    return (
+      <View style={s.stickyBar}>
+        <View style={s.stickyBarInner}>
+          <View style={s.stickyBarInfo}>
+            <Text style={s.stickyBarLabel}>{isLate ? 'Overdue' : 'Next due'}</Text>
+            <Text style={s.stickyBarDate}>{formatDate(nextDue.due)}</Text>
+          </View>
+          <TouchableOpacity
+            style={[s.stickyPayBtn, isLate && { backgroundColor: theme.negative }]}
+            onPress={() => goToAchPayScreen(nextDue)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${isLate ? 'Pay now' : 'Pay early'} — ${currency(nextDue.amount_cents)}`}
+          >
+            <Text style={s.stickyPayBtnText}>{isLate ? 'Pay now' : 'Pay early'}</Text>
+            <Text style={s.stickyPayBtnAmt}>{currency(nextDue.amount_cents)}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   // -------------------------------------------
   // RENDER
   // -------------------------------------------
 
   return (
-    <View style={{ flex: 1, backgroundColor: SOFT_BG }}>
-      <FlatList
-        data={rows}
-        keyExtractor={(p) => p.id}
-        renderItem={({ item, index }) => (
-          <PaymentRowView
-            item={item}
-            index={index}
-            isFirstUnpaid={isOutgoingView && index === firstUnpaidIndex}
-            isFirstConfirm={isIncomingView && index === firstConfirmIndex}
-          />
-        )}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        ListHeaderComponent={
-          <View style={s.header}>
-            <View style={[s.dirBadge, isIncomingView ? s.dirBadgeIn : s.dirBadgeOut]}>
-              <Text style={s.dirBadgeText}>{isIncomingView ? 'INCOMING' : 'OUTGOING'}</Text>
-            </View>
-
-            <View style={s.statsRow}>
-              <View style={s.statItem}>
-                <Text style={s.statLabel}>Total</Text>
-                <Text style={s.statAmt}>{currency(scheduledTotal)}</Text>
-              </View>
-              <View style={s.statSep} />
-              <View style={s.statItem}>
-                <Text style={s.statLabel}>Paid</Text>
-                <Text style={[s.statAmt, { color: GREEN }]}>{currency(paidTotal)}</Text>
-              </View>
-              <View style={s.statSep} />
-              <View style={s.statItem}>
-                <Text style={s.statLabel}>Remaining</Text>
-                <Text style={[s.statAmt, { color: '#C62828' }]}>{currency(remainingTotal)}</Text>
-              </View>
-            </View>
-
-            <View style={s.progressBarRow}>
-              <View style={s.progressTrackCompact}>
-                <View style={[s.progressFill, { width: `${progressPercent}%` }]} />
-              </View>
-              <Text style={s.progressPctText}>{progressPercent}%</Text>
-            </View>
-            <Text style={s.progressSubCompact}>
-              {paidInstallments} of {Math.max(totalInstallments, rows.length)} payments
-              {pendingCount > 0 ? ` · ${pendingCount} pending confirmation` : ''}
-            </Text>
-
-            {!!nextDue && (
-              <View style={s.nextDueCard}>
-                <Text style={s.nextDueLabel}>Next payment</Text>
-                <Text style={s.nextDueAmt}>{currency(nextDue.amount_cents)}</Text>
-                <Text style={s.nextDueDate}>{formatDate(nextDue.due)}</Text>
-                {isOutgoingView && nextDue.status === 'scheduled' && (
-                  <Text style={s.nextDueMethod}>Autopay withdraws on the due date</Text>
-                )}
-                {isOutgoingView && nextDue.status === 'late' && (
-                  <Text style={[s.nextDueMethod, { color: '#DC2626' }]}>Overdue — payment was not collected</Text>
-                )}
-                {isOutgoingView && nextDue.status === 'processing' && (
-                  <Text style={[s.nextDueMethod, { color: BLUE }]}>ACH payment in progress</Text>
-                )}
-              </View>
-            )}
-
-            {isIncomingView && incomingPendingCount > 0 && (
-              <View style={s.pendingConfirmCard}>
-                <Text style={s.pendingConfirmTitle}>Manual payment received?</Text>
-                <Text style={s.pendingConfirmBody}>
-                  {incomingPendingCount === 1
-                    ? 'The borrower manually submitted 1 payment outside AutoPay. Confirm once received, or reject if you did not.'
-                    : `The borrower manually submitted ${incomingPendingCount} payments outside AutoPay. Swipe left on each row to confirm or reject.`}
-                </Text>
-              </View>
-            )}
-
-            <View style={s.scheduleHeaderRow}>
-              <Text style={s.scheduleLabel}>Payment schedule</Text>
-              <TouchableOpacity style={s.contractBtn} onPress={openFullLoan} activeOpacity={0.8}>
-                <Text style={s.contractBtnText}>Contract</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        }
-        ListFooterComponent={
-          <View style={s.footer}>
-            <View style={s.rewardCard}>
-              <Text style={s.rewardText}>{completionRewardText}</Text>
-            </View>
-            {isIncomingView && !!borrowerProfile && (
-              <TouchableOpacity
-                style={s.borrowerCard}
-                onPress={navigateToPersonProfile}
-                activeOpacity={0.92}
-              >
-                <View style={s.borrowerCardHeader}>
-                  <Text style={s.borrowerCardTitle}>Borrower</Text>
-                  <Text style={s.borrowerCardLink}>View profile →</Text>
-                </View>
-                <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
-                <Text style={s.borrowerScoreLine}>
-                  {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
-                  {'  '}
-                  <Text style={s.borrowerScoreMeta}>
-                    {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
-                  </Text>
-                </Text>
-                <Text style={s.streakText}>{repaymentStreakText}</Text>
-              </TouchableOpacity>
-            )}
-
-            {__DEV__ && isBorrower && (
-              <ScoreV22DevCard
-                data={scoreV22Data}
-                loading={scoreV22Loading}
-                error={scoreV22Error}
-                onRefresh={() => { void fetchScoreV22Progress(); }}
-              />
-            )}
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={s.emptyWrap}>
-            <Text style={s.emptyText}>No payments found.</Text>
-          </View>
-        }
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      />
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
+      <TopSummary />
+      <TabBar />
+      <View style={{ flex: 1 }}>
+        {activeTab === 'overview' && <OverviewTab />}
+        {activeTab === 'payments' && <PaymentsTab />}
+        {activeTab === 'score' && <ScoreImpactTab />}
+      </View>
+      {activeTab !== 'score' && <StickyActionBar />}
     </View>
   );
 }
@@ -1950,31 +2606,198 @@ export default function LoanDetail({ route, navigation }: any) {
 // STYLES
 // ---------------------------------------------
 
-const s = StyleSheet.create({
+const makeS = (t: AppTheme) => StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // ── Compact top summary ───────────────────────────────────────────────────────
+  topSummary: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: t.divider,
+    backgroundColor: t.background,
+  },
+  topRow1: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  topDirChip: {
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1,
+  },
+  topDirChipIn: { backgroundColor: t.positiveSurface, borderColor: t.positiveBorder },
+  topDirChipOut: { backgroundColor: t.negativeSurface, borderColor: t.negativeBorder },
+  topDirChipText: { fontSize: 11, fontWeight: '700', color: t.textSecondary, letterSpacing: 0.3 },
+  topPartyName: { flex: 1, fontSize: 13, fontWeight: '600', color: t.textSecondary },
+  topCompleteChip: {
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: t.positiveSurface, borderWidth: 1, borderColor: t.positiveBorder,
+  },
+  topCompleteChipText: { fontSize: 11, fontWeight: '700', color: t.positive },
+  topAmountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 6 },
+  topAmount: { fontSize: 26, fontWeight: '900', color: t.textPrimary, letterSpacing: -0.5 },
+  topAmountOf: { fontSize: 13, fontWeight: '500', color: t.textMuted },
+  topProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topProgressTrack: {
+    flex: 1, height: 5, borderRadius: 999,
+    backgroundColor: t.isDark ? '#1A1A1A' : '#EAEAEA', overflow: 'hidden',
+  },
+  topProgressFill: { height: '100%', borderRadius: 999, backgroundColor: GREEN },
+  topProgressPct: { fontSize: 11, fontWeight: '700', color: GREEN, width: 30, textAlign: 'right' },
+  topInstallments: { fontSize: 11, fontWeight: '600', color: t.textMuted },
+  topNextDue: { marginTop: 5, fontSize: 12, fontWeight: '600', color: t.textMuted },
+
+  // ── Segmented tab bar ─────────────────────────────────────────────────────────
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: t.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: t.divider,
+  },
+  tabItem: {
+    flex: 1, paddingVertical: 11, alignItems: 'center', position: 'relative',
+  },
+  tabItemActive: {},
+  tabLabel: { fontSize: 13, fontWeight: '600', color: t.textMuted },
+  tabLabelActive: { color: t.isDark ? t.brandBright : t.brand, fontWeight: '700' },
+  tabIndicator: {
+    position: 'absolute', bottom: 0, left: '15%', right: '15%',
+    height: 2, borderRadius: 999,
+    backgroundColor: t.isDark ? t.brandBright : t.brand,
+  },
+
+  // ── Tab content padding ───────────────────────────────────────────────────────
+  tabContent: { padding: 16, paddingBottom: 24 },
+
+  // ── Section headers (Payments tab) ────────────────────────────────────────────
+  sectionHeaderView: {
+    paddingTop: 12, paddingBottom: 6,
+  },
+  sectionHeaderText: {
+    fontSize: 11, fontWeight: '700', color: t.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+
+  // ── Next payment info card (Overview) ─────────────────────────────────────────
+  nextPayCard: {
+    backgroundColor: t.surface, borderRadius: 16, padding: 18,
+    borderWidth: 1, borderColor: t.positiveBorder,
+    shadowColor: '#000', shadowOpacity: t.isDark ? 0 : 0.05,
+    shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: t.isDark ? 0 : 1,
+    marginBottom: 12,
+  },
+  nextPayLabel: {
+    fontSize: 11, fontWeight: '700', color: t.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6,
+  },
+  nextPayAmt: { fontSize: 32, fontWeight: '900', color: t.textPrimary, letterSpacing: -0.5 },
+  nextPayDate: { fontSize: 14, fontWeight: '500', color: t.textMuted, marginTop: 4 },
+  nextPayMethod: { fontSize: 13, fontWeight: '500', color: t.textMuted, marginTop: 6 },
+
+  // ── Score impact link ─────────────────────────────────────────────────────────
+  scoreImpactLink: { marginTop: 14, alignSelf: 'flex-start' },
+  scoreImpactLinkText: {
+    fontSize: 13, fontWeight: '700',
+    color: t.isDark ? t.brandBright : t.brand,
+    textDecorationLine: 'underline',
+  },
+
+  // ── Compact agreement card (Overview) ────────────────────────────────────────
+  agreementCard: {
+    backgroundColor: t.surface, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: t.border,
+    marginBottom: 12,
+  },
+  agreementHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  agreementTitle: { fontSize: 13, fontWeight: '800', color: t.textPrimary },
+  contractLinkText: { fontSize: 13, fontWeight: '700', color: BLUE },
+  agreementGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  agreementItem: { minWidth: '40%', flex: 1 },
+  agreementLabel: { fontSize: 11, fontWeight: '600', color: t.textMuted, marginBottom: 2 },
+  agreementValue: { fontSize: 15, fontWeight: '800', color: t.textPrimary },
+
+  // ── Pending confirmation card (Overview) ──────────────────────────────────────
+  pendingConfirmCard: {
+    marginBottom: 12, backgroundColor: t.infoSurface, borderRadius: 12,
+    padding: 14, borderWidth: 1, borderColor: t.isDark ? '#0D1540' : '#BFDBFE',
+  },
+  pendingConfirmTitle: { fontSize: 14, fontWeight: '800', color: t.isDark ? t.info : '#1D4ED8', marginBottom: 4 },
+  pendingConfirmBody: { fontSize: 13, fontWeight: '500', color: t.isDark ? t.info : '#1E40AF', lineHeight: 20 },
+  pendingConfirmCta: { marginTop: 10 },
+  pendingConfirmCtaText: { fontSize: 13, fontWeight: '700', color: t.isDark ? t.info : '#1D4ED8' },
+
+  // ── Payments tab footer ───────────────────────────────────────────────────────
+  paymentsFooter: { paddingTop: 8, gap: 10 },
+
+  // ── Score Impact tab ──────────────────────────────────────────────────────────
+  scoreUnavailCard: {
+    backgroundColor: t.surfaceMuted, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: t.border, marginBottom: 12,
+  },
+  scoreUnavailTitle: { fontSize: 15, fontWeight: '800', color: t.textPrimary, marginBottom: 6 },
+  scoreUnavailBody: { fontSize: 13, fontWeight: '500', color: t.textSecondary, lineHeight: 20 },
+  scenarioSection: { marginTop: 14 },
+  scenarioTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
+  scenarioTitle: { fontSize: 13, fontWeight: '700', color: t.textMuted },
+  scoreV22Label: { fontSize: 11, fontWeight: '700', color: t.isDark ? '#FFD60A' : '#92400E' },
+  scenarioRow: { flexDirection: 'row', gap: 8 },
+  scenarioBtn: {
+    flex: 1, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 10, alignItems: 'center',
+    backgroundColor: t.surfaceMuted, borderWidth: 1, borderColor: t.border,
+  },
+  scenarioBtnActive: {
+    backgroundColor: t.isDark ? t.activeTabSurface : '#E8F5E9',
+    borderColor: t.isDark ? t.brandBright : t.brand,
+  },
+  scenarioBtnDisabled: { opacity: 0.35 },
+  scenarioBtnText: { fontSize: 12, fontWeight: '700', color: t.textSecondary, textAlign: 'center', lineHeight: 17 },
+  scenarioBtnTextActive: { color: t.isDark ? t.brandBright : t.brand },
+  scenarioBtnTextDisabled: { color: t.textMuted },
+  scoreDisclaimer: {
+    marginTop: 14, fontSize: 12, fontWeight: '500', color: t.textMuted, lineHeight: 18,
+  },
+  scorePayCta: { marginTop: 14, alignSelf: 'flex-start' },
+  scorePayCtaText: { fontSize: 13, fontWeight: '700', color: t.isDark ? t.brandBright : t.brand },
+
+  // ── Sticky action bar ─────────────────────────────────────────────────────────
+  stickyBar: {
+    borderTopWidth: 1, borderTopColor: t.border,
+    backgroundColor: t.surface,
+    paddingHorizontal: 16, paddingVertical: 10,
+  },
+  stickyBarInner: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  stickyBarInfo: { flex: 1 },
+  stickyBarLabel: { fontSize: 11, fontWeight: '700', color: t.textMuted, textTransform: 'uppercase' },
+  stickyBarDate: { fontSize: 13, fontWeight: '600', color: t.textSecondary, marginTop: 1 },
+  stickyPayBtn: {
+    backgroundColor: t.isDark ? '#1B5E20' : '#1B5E20',
+    borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center',
+  },
+  stickyPayBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  stickyPayBtnAmt: { color: 'rgba(255,255,255,0.75)', fontWeight: '600', fontSize: 12, marginTop: 1 },
+
+  // ── Borrowed styles from old layout ──────────────────────────────────────────
   header: { marginBottom: 12 },
 
   // ── Borrower card ─────────────────────────────────────────────────────────────
   borrowerCard: {
     marginTop: 12,
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: t.border,
     shadowColor: '#000',
-    shadowOpacity: 0.04,
+    shadowOpacity: t.isDark ? 0 : 0.04,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    elevation: t.isDark ? 0 : 1,
   },
   borrowerCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  borrowerCardTitle: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.4 },
+  borrowerCardTitle: { fontSize: 11, fontWeight: '700', color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
   borrowerCardLink: { color: BLUE, fontWeight: '700', fontSize: 13 },
-  borrowerNameText: { marginTop: 8, color: '#111827', fontSize: 16, fontWeight: '800' },
+  borrowerNameText: { marginTop: 8, color: t.textPrimary, fontSize: 16, fontWeight: '800' },
   borrowerScoreLine: { fontSize: 30, fontWeight: '900', color: GREEN, marginTop: 6 },
-  borrowerScoreMeta: { fontSize: 15, fontWeight: '700', color: '#6B7280' },
-  streakText: { marginTop: 6, color: '#374151', fontSize: 13, fontWeight: '500' },
+  borrowerScoreMeta: { fontSize: 15, fontWeight: '700', color: t.textMuted },
+  streakText: { marginTop: 6, color: t.textSecondary, fontSize: 13, fontWeight: '500' },
 
   // ── Progress fill ─────────────────────────────────────────────────────────────
   progressFill: { height: '100%', borderRadius: 999, backgroundColor: GREEN },
@@ -1982,37 +2805,37 @@ const s = StyleSheet.create({
   // ── Footer reward card ────────────────────────────────────────────────────────
   rewardCard: {
     marginTop: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: t.surfaceMuted,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: t.border,
   },
-  rewardText: { color: '#374151', lineHeight: 20, fontSize: 13, fontWeight: '500' },
+  rewardText: { color: t.textSecondary, lineHeight: 20, fontSize: 13, fontWeight: '500' },
 
   // ── Payment row card ──────────────────────────────────────────────────────────
   payRow: {
     padding: 16,
     borderRadius: 14,
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: t.border,
     shadowColor: '#000',
-    shadowOpacity: 0.04,
+    shadowOpacity: t.isDark ? 0 : 0.04,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    elevation: t.isDark ? 0 : 1,
   },
-  payRowDone: { backgroundColor: '#F9FAFB', shadowOpacity: 0, elevation: 0 },
+  payRowDone: { backgroundColor: t.surfaceMuted, shadowOpacity: 0, elevation: 0 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  paymentIndexText: { fontSize: 11, fontWeight: '600', color: '#6B7280' },
-  amountText: { fontSize: 22, fontWeight: '800', color: '#111827' },
-  amountTextDone: { color: '#374151' },
-  dueText: { color: '#6B7280', marginTop: 3, fontSize: 14, fontWeight: '500' },
-  paidDateText: { marginTop: 3, fontSize: 13, fontWeight: '500', color: '#16a34a' },
-  rewardPreviewText: { marginTop: 8, color: '#4B5563', fontSize: 12, fontWeight: '500', lineHeight: 17 },
-  receiptHint: { marginTop: 8, fontSize: 12, fontWeight: '500', color: '#9CA3AF' },
-  swipeGuide: { color: '#6B7280', marginTop: 10, fontSize: 12, fontWeight: '600' },
+  paymentIndexText: { fontSize: 11, fontWeight: '600', color: t.textMuted },
+  amountText: { fontSize: 22, fontWeight: '800', color: t.textPrimary },
+  amountTextDone: { color: t.textSecondary },
+  dueText: { color: t.textMuted, marginTop: 3, fontSize: 14, fontWeight: '500' },
+  paidDateText: { marginTop: 3, fontSize: 13, fontWeight: '500', color: t.isDark ? '#66BB6A' : '#16a34a' },
+  rewardPreviewText: { marginTop: 8, color: t.textSecondary, fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  receiptHint: { marginTop: 8, fontSize: 12, fontWeight: '500', color: t.textMuted },
+  swipeGuide: { color: t.textMuted, marginTop: 10, fontSize: 12, fontWeight: '600' },
 
   pill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
   pillTxt: { fontSize: 12, fontWeight: '700' },
@@ -2027,12 +2850,12 @@ const s = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
+    borderColor: t.border,
+    backgroundColor: t.surfaceMuted,
   },
-  btnSecondaryText: { color: '#374151', fontWeight: '700', fontSize: 14 },
+  btnSecondaryText: { color: t.textSecondary, fontWeight: '700', fontSize: 14 },
   btnTextOnly: { paddingVertical: 8, alignItems: 'center', marginTop: 4 },
-  btnTextOnlyLabel: { color: '#6B7280', fontWeight: '600', fontSize: 13 },
+  btnTextOnlyLabel: { color: t.textMuted, fontWeight: '600', fontSize: 13 },
 
   // ── Swipe actions ─────────────────────────────────────────────────────────────
   leftActionExtension: {
@@ -2056,71 +2879,81 @@ const s = StyleSheet.create({
 
   // ── Empty state ───────────────────────────────────────────────────────────────
   emptyWrap: { padding: 20, alignItems: 'center' },
-  emptyText: { color: '#6B7280', fontSize: 14 },
+  emptyText: { color: t.textMuted, fontSize: 14 },
 
   // ── Extension status ──────────────────────────────────────────────────────────
   extensionStatusPill: {
-    marginTop: 8, alignSelf: 'flex-start', backgroundColor: '#FEF3C7',
+    marginTop: 8, alignSelf: 'flex-start',
+    backgroundColor: t.isDark ? '#1A1000' : '#FEF3C7',
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: '#FDE68A',
+    borderWidth: 1, borderColor: t.isDark ? '#2A1400' : '#FDE68A',
   },
-  extensionApprovedPill: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
-  extensionDeniedPill: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
-  extensionStatusText: { fontSize: 12, fontWeight: '600', color: '#92400E' },
+  extensionApprovedPill: {
+    backgroundColor: t.positiveSurface,
+    borderColor: t.isDark ? '#0D3A15' : '#BBF7D0',
+  },
+  extensionDeniedPill: {
+    backgroundColor: t.negativeSurface,
+    borderColor: t.isDark ? '#3A0D0D' : '#FECACA',
+  },
+  extensionStatusText: { fontSize: 12, fontWeight: '600', color: t.isDark ? t.warning : '#92400E' },
   extensionRequestCard: {
-    marginTop: 12, backgroundColor: '#FFFBEB', borderRadius: 10,
-    padding: 12, borderWidth: 1, borderColor: '#FDE68A',
+    marginTop: 12, backgroundColor: t.isDark ? '#1A1000' : '#FFFBEB', borderRadius: 10,
+    padding: 12, borderWidth: 1, borderColor: t.isDark ? '#2A1400' : '#FDE68A',
   },
-  extensionRequestLabel: { fontSize: 11, fontWeight: '700', color: '#92400E', marginBottom: 4 },
-  extensionRequestDate: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 10 },
+  extensionRequestLabel: { fontSize: 11, fontWeight: '700', color: t.isDark ? t.warning : '#92400E', marginBottom: 4 },
+  extensionRequestDate: { fontSize: 14, fontWeight: '700', color: t.textPrimary, marginBottom: 10 },
   extensionActions: { flexDirection: 'row', gap: 8 },
   extensionApproveBtn: { flex: 1, backgroundColor: '#1B5E20', borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
   extensionApproveTxt: { color: '#fff', fontWeight: '800', fontSize: 14 },
   extensionDenyBtn: {
-    flex: 1, backgroundColor: '#FEF2F2', borderRadius: 8, paddingVertical: 10,
-    alignItems: 'center', borderWidth: 1, borderColor: '#FECACA',
+    flex: 1, backgroundColor: t.negativeSurface, borderRadius: 8, paddingVertical: 10,
+    alignItems: 'center', borderWidth: 1, borderColor: t.isDark ? '#3A0D0D' : '#FECACA',
   },
-  extensionDenyTxt: { color: '#B42318', fontWeight: '800', fontSize: 14 },
+  extensionDenyTxt: { color: t.isDark ? t.negative : '#B42318', fontWeight: '800', fontSize: 14 },
 
   // ── Direction badge ───────────────────────────────────────────────────────────
   dirBadge: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 12 },
-  dirBadgeIn: { backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#BBF7D0' },
-  dirBadgeOut: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA' },
-  dirBadgeText: { fontSize: 11, fontWeight: '700', color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4 },
+  dirBadgeIn: { backgroundColor: t.positiveSurface, borderWidth: 1, borderColor: t.isDark ? '#0D3A15' : '#BBF7D0' },
+  dirBadgeOut: { backgroundColor: t.negativeSurface, borderWidth: 1, borderColor: t.isDark ? '#3A0D0D' : '#FECACA' },
+  dirBadgeText: { fontSize: 11, fontWeight: '700', color: t.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4 },
 
   // ── Stats row ─────────────────────────────────────────────────────────────────
   statsRow: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14,
-    padding: 14, borderWidth: 1, borderColor: '#E5E7EB',
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: t.surface, borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: t.border,
+    shadowColor: '#000', shadowOpacity: t.isDark ? 0 : 0.04,
+    shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: t.isDark ? 0 : 1,
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statLabel: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 },
-  statAmt: { fontSize: 17, fontWeight: '900', color: '#111827' },
-  statSep: { width: 1, height: 30, backgroundColor: '#E5E7EB' },
+  statLabel: { fontSize: 11, fontWeight: '700', color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 },
+  statAmt: { fontSize: 17, fontWeight: '900', color: t.textPrimary },
+  statSep: { width: 1, height: 30, backgroundColor: t.divider },
 
   // ── Progress bar ──────────────────────────────────────────────────────────────
   progressBarRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
-  progressTrackCompact: { flex: 1, height: 8, borderRadius: 999, backgroundColor: '#EAEAEA', overflow: 'hidden' },
+  progressTrackCompact: { flex: 1, height: 8, borderRadius: 999, backgroundColor: t.isDark ? '#1A1A1A' : '#EAEAEA', overflow: 'hidden' },
   progressPctText: { fontSize: 13, fontWeight: '800', color: GREEN, width: 36, textAlign: 'right' },
-  progressSubCompact: { marginTop: 5, color: '#6B7280', fontSize: 12, fontWeight: '600' },
+  progressSubCompact: { marginTop: 5, color: t.textMuted, fontSize: 12, fontWeight: '600' },
 
   // ── Next payment card ─────────────────────────────────────────────────────────
   nextDueCard: {
-    marginTop: 14, backgroundColor: '#fff', borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: '#BBF7D0',
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1,
+    marginTop: 14, backgroundColor: t.surface, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: t.isDark ? '#0D3A15' : '#BBF7D0',
+    shadowColor: '#000', shadowOpacity: t.isDark ? 0 : 0.05,
+    shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: t.isDark ? 0 : 1,
   },
-  nextDueLabel: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 },
-  nextDueAmt: { fontSize: 28, fontWeight: '900', color: '#111827', letterSpacing: -0.5 },
-  nextDueDate: { fontSize: 14, fontWeight: '500', color: '#6B7280', marginTop: 3 },
-  nextDueMethod: { fontSize: 13, fontWeight: '500', color: '#6B7280', marginTop: 8 },
+  nextDueLabel: { fontSize: 11, fontWeight: '700', color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 },
+  nextDueAmt: { fontSize: 28, fontWeight: '900', color: t.textPrimary, letterSpacing: -0.5 },
+  nextDueDate: { fontSize: 14, fontWeight: '500', color: t.textMuted, marginTop: 3 },
+  nextDueMethod: { fontSize: 13, fontWeight: '500', color: t.textMuted, marginTop: 8 },
+
   // ── Schedule header ───────────────────────────────────────────────────────────
   scheduleHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 22, marginBottom: 8 },
-  scheduleLabel: { fontSize: 15, fontWeight: '800', color: '#111827' },
+  scheduleLabel: { fontSize: 15, fontWeight: '800', color: t.textPrimary },
   contractBtn: {
-    backgroundColor: '#EFF6FF', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
-    borderWidth: 1, borderColor: '#DBEAFE',
+    backgroundColor: t.infoSurface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: t.isDark ? '#0D1540' : '#DBEAFE', alignSelf: 'flex-start',
   },
   contractBtnText: { fontSize: 13, fontWeight: '700', color: BLUE },
 
@@ -2128,18 +2961,10 @@ const s = StyleSheet.create({
   footer: { paddingTop: 16, paddingBottom: 24 },
   swipeGuideProminentBlue: { color: BLUE, fontWeight: '700', fontSize: 13 },
 
-  // ── Pending confirm card ──────────────────────────────────────────────────────
-  pendingConfirmCard: {
-    marginTop: 12, backgroundColor: '#EFF6FF', borderRadius: 12,
-    padding: 14, borderWidth: 1, borderColor: '#BFDBFE',
-  },
-  pendingConfirmTitle: { fontSize: 14, fontWeight: '800', color: '#1D4ED8', marginBottom: 4 },
-  pendingConfirmBody: { fontSize: 13, fontWeight: '500', color: '#1E40AF', lineHeight: 20 },
-
   // ── State notes ───────────────────────────────────────────────────────────────
-  autopayNote: { marginTop: 8, fontSize: 12, fontWeight: '500', color: '#6B7280' },
+  autopayNote: { marginTop: 8, fontSize: 12, fontWeight: '500', color: t.textMuted },
   processingNote: { marginTop: 6, fontSize: 13, fontWeight: '600', color: BLUE },
-  pendingConfirmNote: { marginTop: 6, fontSize: 13, fontWeight: '600', color: '#3B82F6' },
+  pendingConfirmNote: { marginTop: 6, fontSize: 13, fontWeight: '600', color: BLUE },
 
   // ── DEV confirm button ────────────────────────────────────────────────────────
   devConfirmBtn: {
