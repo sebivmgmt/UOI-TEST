@@ -43,6 +43,7 @@ import TrustReportScreen from "./screens/TrustReportScreen";
 import ViewTrustReportScreen from "./screens/ViewTrustReportScreen";
 import TrustIntroScreen from "./screens/TrustIntroScreen";
 import TrustHomeScreen from "./screens/TrustHomeScreen";
+import MissedPaymentImpactScreen from "./screens/MissedPaymentImpactScreen";
 
 const BRAND = "#1B5E20";
 
@@ -165,6 +166,7 @@ export type RootStackParamList = {
   AssignItems: undefined;
   ReceiptSummary: undefined;
   ReceiptPaymentConfirm: { recipientName: string; payerName: string; amountCents: number };
+  MissedPaymentImpact: { iouId: string; paymentId: string };
 };
 
 type GateState = "auth" | "phone" | "identity" | "app";
@@ -422,6 +424,7 @@ function HomeStack() {
         <Stack.Screen name="AssignItems" component={AssignItemsScreen} options={{ title: "Assign Items" }} />
         <Stack.Screen name="ReceiptSummary" component={ReceiptSummaryScreen} options={{ title: "Split Summary" }} />
         <Stack.Screen name="ReceiptPaymentConfirm" component={ReceiptPaymentConfirmScreen} options={{ title: "Confirm Payment" }} />
+        <Stack.Screen name="MissedPaymentImpact" component={MissedPaymentImpactScreen} options={{ title: "Payment Impact" }} />
       </Stack.Navigator>
     </ReceiptSplitProvider>
   );

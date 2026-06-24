@@ -8,9 +8,8 @@ import {
   Alert,
   ActivityIndicator,
   Animated,
-  FlatList,
+  Modal,
   ScrollView,
-  SectionList,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
@@ -20,6 +19,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
 import { supabase } from '../supabase';
+import Svg, { Path, Text as SvgText } from 'react-native-svg';
 
 // ---------------------------------------------
 // TYPES
@@ -112,7 +112,7 @@ function isScoreV22Progress(v: unknown): v is ScoreV22Progress {
 // TAB / SCENARIO TYPES
 // ---------------------------------------------
 
-type TabId = 'overview' | 'payments' | 'score';
+type TabId = 'overview' | 'payments' | 'score' | 'estimate';
 type ScenarioId = 'pay_next_today' | 'payoff_today' | 'complete_on_schedule';
 
 type IouScoreScenario = {
@@ -154,9 +154,6 @@ function isIouScoreScenario(v: unknown): v is IouScoreScenario {
   );
 }
 
-// Payment section data for the Payments tab SectionList
-type PaymentSectionData = { title: string; data: PaymentRow[] };
-
 // ---------------------------------------------
 // CONSTANTS
 // ---------------------------------------------
@@ -165,6 +162,54 @@ const GREEN = '#77B777';
 const BLUE = '#3b82f6';
 const ORANGE = '#f59e0b';
 const SOFT_BG = '#F5F7F9';
+
+// SVG gauge constants — half-donut with center (cx,cy) at bottom of viewBox.
+// Extra vertical padding (G_PAD) ensures the stroke cap does not clip at the
+// top boundary. react-native-svg clips at the viewBox edges.
+const G_R = 90;
+const G_SW = 20;
+const G_PAD = G_SW / 2 + 2;               // 12 — headroom above the arc
+const G_W = 2 * (G_R + G_SW / 2);         // 200
+const G_H = G_R + G_SW / 2 + G_PAD;       // 112
+const G_CX = G_W / 2;                     // 100
+const G_CY = G_H;                         // 112
+
+// Track: always a full top-semicircle, split through the apex so the
+// diametrically-opposite-endpoint ambiguity in SVG cannot flip the arc.
+const G_TRACK_PATH =
+  `M ${G_CX - G_R} ${G_CY} ` +
+  `A ${G_R} ${G_R} 0 0 1 ${G_CX} ${G_CY - G_R} ` +
+  `A ${G_R} ${G_R} 0 0 1 ${G_CX + G_R} ${G_CY}`;
+
+// In react-native-svg, sweep=1 (positive-angle = clockwise in SVG y-down coords)
+// goes counter-clockwise visually and over the top — the direction we want.
+function halfDonutFillPath(fillRatio: number): string {
+  const clamped = Math.min(1, Math.max(0, fillRatio));
+  if (clamped <= 0) return '';
+  if (clamped >= 1) {
+    return (
+      `M ${G_CX - G_R} ${G_CY} ` +
+      `A ${G_R} ${G_R} 0 0 1 ${G_CX} ${G_CY - G_R} ` +
+      `A ${G_R} ${G_R} 0 0 1 ${G_CX + G_R} ${G_CY}`
+    );
+  }
+  // endAngle: angle of the fill endpoint measured CCW from positive-x axis (standard math)
+  const endAngleRad = ((1 - clamped) * 180 * Math.PI) / 180;
+  const ex = (G_CX + G_R * Math.cos(endAngleRad)).toFixed(3);
+  const ey = (G_CY - G_R * Math.sin(endAngleRad)).toFixed(3);
+  // Large-arc: fill > 50% of the semicircle means the arc exceeds 90° from apex
+  // and needs to be split through the apex to avoid the same ambiguity issue.
+  if (clamped > 0.5) {
+    // Split: left endpoint → apex → fill endpoint
+    return (
+      `M ${G_CX - G_R} ${G_CY} ` +
+      `A ${G_R} ${G_R} 0 0 1 ${G_CX} ${G_CY - G_R} ` +
+      `A ${G_R} ${G_R} 0 0 1 ${ex} ${ey}`
+    );
+  }
+  // Single arc (fill ≤ 50%): no ambiguity since it's less than a quarter-circle
+  return `M ${G_CX - G_R} ${G_CY} A ${G_R} ${G_R} 0 0 1 ${ex} ${ey}`;
+}
 
 // These were legacy-system constants and are NOT backed by Score v2.
 // Score v2 is ceiling-based, not per-payment additive — no authoritative
@@ -195,281 +240,70 @@ const formatDate = (dateStr: string): string => {
 
 const makeSv = (t: AppTheme) => StyleSheet.create({
   card: {
-    marginTop: 14,
     backgroundColor: t.surface,
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: t.border,
-    shadowColor: '#000',
-    shadowOpacity: t.isDark ? 0 : 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: t.isDark ? 0 : 1,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: t.textSecondary,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  devBadge: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-  },
-  devBadgeText: {
-    color: '#FFD60A',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  refreshBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: t.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: t.border,
-  },
-  refreshBtnText: {
-    color: t.textSecondary,
-    fontWeight: '700',
-    fontSize: 16,
-    lineHeight: 20,
-  },
-  stateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-  },
-  stateText: {
-    color: t.textSecondary,
-    fontSize: 14,
-  },
+  stateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  stateText: { color: t.textSecondary, fontSize: 14, fontWeight: '500' },
   unavailableBox: {
-    backgroundColor: t.negativeSurface,
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: t.isDark ? '#3A0D0D' : '#FECACA',
+    backgroundColor: t.negativeSurface, borderRadius: 8, padding: 12,
+    borderWidth: 1, borderColor: t.isDark ? '#3A0D0D' : '#FECACA',
   },
-  unavailableText: {
-    color: t.negative,
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 19,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: t.divider,
-    marginVertical: 16,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: t.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 4,
-    marginBottom: 8,
-  },
-  heroValue: {
-    fontSize: 56,
-    fontWeight: '900',
-    letterSpacing: -1.5,
-    lineHeight: 60,
-  },
-  heroUnit: {
-    fontSize: 20,
-    fontWeight: '700',
-    paddingBottom: 8,
-  },
-  heroCaption: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: t.textSecondary,
-    lineHeight: 20,
-  },
-  repayRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 10,
-  },
-  repayAmount: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: t.textPrimary,
-  },
-  repayPct: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: t.textMuted,
-  },
-  bar: {
-    height: 8,
-    borderRadius: 999,
+  unavailableText: { color: t.negative, fontSize: 13, fontWeight: '600', lineHeight: 19 },
+  effectRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  effectLabel: { fontSize: 11, fontWeight: '700', color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  effectValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 3 },
+  effectValue: { fontSize: 32, fontWeight: '900', letterSpacing: -0.5, lineHeight: 36 },
+  effectUnit: { fontSize: 13, fontWeight: '700', paddingBottom: 3 },
+  statusChip: { borderRadius: 6, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1 },
+  statusChipActive: { backgroundColor: t.positiveSurface, borderColor: t.positiveBorder },
+  statusChipLocked: { backgroundColor: t.isDark ? '#1A1000' : '#FFF7ED', borderColor: t.isDark ? '#2A1400' : '#FED7AA' },
+  statusChipText: { fontSize: 11, fontWeight: '700' },
+  statusChipTextActive: { color: t.positive },
+  statusChipTextLocked: { color: t.isDark ? t.warning : '#C2410C' },
+  repaySection: { marginBottom: 12 },
+  repayBarTrack: {
+    height: 7, borderRadius: 999,
     backgroundColor: t.isDark ? '#1A1A1A' : '#EAEAEA',
-    overflow: 'hidden',
+    overflow: 'hidden', marginBottom: 6,
   },
-  barFillGreen: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: GREEN,
+  repayBarFill: { height: '100%', borderRadius: 999, backgroundColor: GREEN },
+  repayMeta: { flexDirection: 'row', justifyContent: 'space-between' },
+  repayMetaText: { fontSize: 12, fontWeight: '600', color: t.textMuted },
+  repayPctText: { fontSize: 12, fontWeight: '700', color: t.textMuted },
+  completionRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.divider,
   },
-  miniBar: {
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: t.isDark ? '#1A1A1A' : '#EAEAEA',
-    overflow: 'hidden',
-    marginTop: 6,
+  completionLabel: { fontSize: 13, fontWeight: '600', color: t.textSecondary },
+  completionValue: { fontSize: 15, fontWeight: '800', color: t.textPrimary },
+  penaltyHint: {
+    backgroundColor: t.negativeSurface, borderRadius: 7,
+    paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8,
+    alignSelf: 'flex-start',
+    borderWidth: 1, borderColor: t.isDark ? '#3A0D0D' : '#FECACA',
   },
-  barFillBlue: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: BLUE,
+  penaltyHintText: { fontSize: 12, fontWeight: '700', color: t.negative },
+  detailsToggle: {
+    paddingTop: 10, marginTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.divider,
   },
-  pendingSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  lockedChip: {
-    backgroundColor: t.isDark ? '#1A1000' : '#FFF7ED',
-    borderRadius: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: t.isDark ? '#2A1400' : '#FED7AA',
-  },
-  lockedChipText: {
-    color: t.isDark ? t.warning : '#C2410C',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  unlockedChip: {
-    backgroundColor: t.positiveSurface,
-    borderRadius: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: t.isDark ? '#0D3A15' : '#BBF7D0',
-  },
-  unlockedChipText: {
-    color: t.positive,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  metricLine: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: t.textPrimary,
-    marginBottom: 2,
-  },
-  earlyBonusLine: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: t.textSecondary,
-    marginBottom: 2,
-  },
-  projectedRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 4,
-    marginBottom: 4,
-  },
-  projectedValue: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: t.textPrimary,
-    letterSpacing: -0.5,
-  },
-  projectedUnit: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: t.textMuted,
-    paddingBottom: 4,
-  },
-  projectedNote: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: t.textSecondary,
-    lineHeight: 19,
-  },
-  lockedExplanation: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: t.divider,
-    fontSize: 13,
-    fontWeight: '500',
-    color: t.textSecondary,
-    lineHeight: 20,
-  },
-  penaltyBlock: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: t.negativeSurface,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  penaltyLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: t.negative,
-  },
-  penaltyNote: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: t.textMuted,
-    marginTop: 2,
-  },
-  penaltyValue: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: t.negative,
-  },
-  techToggle: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: t.border,
-  },
-  techToggleText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: t.textMuted,
-  },
-  techBox: {
-    marginTop: 8,
-    backgroundColor: t.surfaceMuted,
-    borderRadius: 8,
-    padding: 10,
-    gap: 3,
-  },
+  detailsToggleText: { fontSize: 12, fontWeight: '600', color: t.textMuted },
+  detailsBox: { marginTop: 10, backgroundColor: t.surfaceMuted, borderRadius: 8, padding: 10, gap: 6 },
+  detailsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  detailsLabel: { fontSize: 12, fontWeight: '500', color: t.textMuted },
+  detailsValue: { fontSize: 12, fontWeight: '700', color: t.textSecondary },
+  detailsNote: { fontSize: 11, fontWeight: '500', color: t.textMuted, lineHeight: 16 },
+  techKey: { fontSize: 10, fontWeight: '600', color: t.textMuted },
+  techVal: { fontSize: 10, fontWeight: '500', color: t.textMuted },
+  refreshFooter: { marginTop: 12, alignSelf: 'flex-end' },
+  refreshFooterText: { fontSize: 11, fontWeight: '600', color: t.textMuted },
+
+  // ── legacy keys kept so old dead code below compiles until next cleanup ───────
   techLine: {
     fontSize: 11,
     fontWeight: '500',
@@ -496,14 +330,6 @@ function ScoreV22DevCard({
   const [techOpen, setTechOpen] = useState(false);
 
   const repayPct = data ? Math.min(100, Math.round(data.repayment_fraction * 100)) : 0;
-  const completionPct =
-    data && data.completion_reward_max > 0
-      ? Math.min(100, Math.round((data.completion_progress_points / data.completion_reward_max) * 100))
-      : 0;
-  const earlyPct =
-    data && data.early_bonus_max > 0
-      ? Math.min(100, Math.round((data.early_bonus_earned / data.early_bonus_max) * 100))
-      : 0;
 
   const effectColor =
     !data || data.current_public_score_effect === 0
@@ -512,216 +338,122 @@ function ScoreV22DevCard({
         ? theme.negative
         : GREEN;
 
-  const heroCaption = !data
-    ? ''
-    : (() => {
-        const parts: string[] = [];
-        if (data.active_penalties > 0) {
-          parts.push('An active penalty is affecting your score now.');
-        }
-        if (!data.positive_points_unlocked) {
-          if (data.pending_positive_points > 0) {
-            parts.push(
-              `${data.pending_positive_points} positive points are pending until this IOU is completed.`
-            );
-          } else {
-            parts.push(
-              data.positive_points_unlock_condition ||
-                'Positive points are pending until this IOU is completed.'
-            );
-          }
-        } else if (data.active_penalties === 0) {
-          parts.push('Positive points from this IOU are contributing to your score.');
-        }
-        return parts.join(' ');
-      })();
-
   return (
     <View style={sv.card}>
-
-      {/* Header */}
-      <View style={sv.header}>
-        <Text style={sv.headerTitle}>IOU Score Progress</Text>
-        <View style={sv.headerRight}>
-          {showDevBadge && (
-            <View style={sv.devBadge}>
-              <Text style={sv.devBadgeText}>DEV</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            onPress={onRefresh}
-            style={sv.refreshBtn}
-            activeOpacity={loading ? 1 : 0.7}
-            disabled={loading}
-            accessibilityRole="button"
-            accessibilityLabel="Refresh score progress"
-          >
-            <Text style={[sv.refreshBtnText, loading ? { opacity: 0.35 } : undefined]}>↻</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Loading */}
       {loading && (
         <View style={sv.stateRow}>
           <ActivityIndicator size="small" color={BLUE} />
           <Text style={sv.stateText}>Loading…</Text>
         </View>
       )}
-
-      {/* Unavailable */}
       {!loading && !!error && (
         <View style={sv.unavailableBox}>
           <Text style={sv.unavailableText}>{error}</Text>
         </View>
       )}
-
-      {/* Empty */}
       {!loading && !error && !data && (
-        <Text style={sv.stateText}>Score progress is unavailable for this IOU.</Text>
+        <Text style={sv.stateText}>Score progress unavailable.</Text>
       )}
-
-      {/* Success */}
       {!loading && !error && !!data && (
         <View>
-
-          {/* 1. Current score effect — hero */}
-          <Text style={sv.sectionLabel}>Current score effect</Text>
-          <View style={sv.heroRow}>
-            <Text style={[sv.heroValue, { color: effectColor }]}>
-              {data.current_public_score_effect > 0 ? '+' : ''}
-              {data.current_public_score_effect}
-            </Text>
-            <Text style={[sv.heroUnit, { color: effectColor }]}>pts</Text>
-          </View>
-          {!!heroCaption && <Text style={sv.heroCaption}>{heroCaption}</Text>}
-
-          <View style={sv.divider} />
-
-          {/* 2. Repayment progress */}
-          <Text style={sv.sectionLabel}>Repayment</Text>
-          <View style={sv.repayRow}>
-            <Text style={sv.repayAmount}>
-              {currency(data.paid_cents)} of {currency(data.principal_cents)}
-            </Text>
-            <Text style={sv.repayPct}>{repayPct}%</Text>
-          </View>
-          <View style={sv.bar}>
-            <View style={[sv.barFillGreen, { width: `${repayPct}%` }]} />
-          </View>
-
-          <View style={sv.divider} />
-
-          {/* 3 + 4. Completion progress + early bonus */}
-          <View style={sv.pendingSectionHeader}>
-            <Text style={[sv.sectionLabel, { marginBottom: 0 }]}>
-              {data.positive_points_unlocked ? 'Score progress' : 'Pending progress'}
-            </Text>
-            <View style={data.positive_points_unlocked ? sv.unlockedChip : sv.lockedChip}>
-              <Text style={data.positive_points_unlocked ? sv.unlockedChipText : sv.lockedChipText}>
-                {data.positive_points_unlocked ? 'Unlocked' : 'Locked'}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={sv.metricLine}>
-            {data.completion_progress_points} of {data.completion_reward_max} completion points
-            {!data.positive_points_unlocked ? ' progressing' : ''}
-          </Text>
-          <View style={sv.miniBar}>
-            <View style={[sv.barFillBlue, { width: `${completionPct}%` }]} />
-          </View>
-
-          {data.early_bonus_max > 0 && (
-            <View style={{ marginTop: 12 }}>
-              <Text style={sv.earlyBonusLine}>
-                {data.early_bonus_earned} of {data.early_bonus_max} early-payment bonus
-              </Text>
-              <View style={sv.miniBar}>
-                <View style={[sv.barFillBlue, { width: `${earlyPct}%` }]} />
+          {/* Effect + status chip */}
+          <View style={sv.effectRow}>
+            <View>
+              <Text style={sv.effectLabel}>Score effect</Text>
+              <View style={sv.effectValueRow}>
+                <Text style={[sv.effectValue, { color: effectColor }]}>
+                  {data.current_public_score_effect > 0 ? '+' : ''}
+                  {data.current_public_score_effect}
+                </Text>
+                <Text style={[sv.effectUnit, { color: effectColor }]}>pts</Text>
               </View>
             </View>
-          )}
+            <View style={[sv.statusChip, data.positive_points_unlocked ? sv.statusChipActive : sv.statusChipLocked]}>
+              <Text style={[sv.statusChipText, data.positive_points_unlocked ? sv.statusChipTextActive : sv.statusChipTextLocked]}>
+                {data.positive_points_unlocked ? 'Active' : 'Locked'}
+              </Text>
+            </View>
+          </View>
 
-          {/* 5. Active penalty — shown only when > 0, before projected */}
+          {/* Repayment progress bar */}
+          <View style={sv.repaySection}>
+            <View style={sv.repayBarTrack}>
+              <View style={[sv.repayBarFill, { width: `${repayPct}%` as any }]} />
+            </View>
+            <View style={sv.repayMeta}>
+              <Text style={sv.repayMetaText}>{currency(data.paid_cents)} paid</Text>
+              <Text style={sv.repayPctText}>{repayPct}%</Text>
+            </View>
+          </View>
+
+          {/* Active penalty hint */}
           {data.active_penalties > 0 && (
-            <>
-              <View style={sv.divider} />
-              <View style={sv.penaltyBlock}>
-                <View>
-                  <Text style={sv.penaltyLabel}>Active penalty</Text>
-                  <Text style={sv.penaltyNote}>Applying to your score now</Text>
-                </View>
-                <Text style={sv.penaltyValue}>−{data.active_penalties}</Text>
-              </View>
-            </>
+            <View style={sv.penaltyHint}>
+              <Text style={sv.penaltyHintText}>−{data.active_penalties} active penalty applying now</Text>
+            </View>
           )}
 
-          <View style={sv.divider} />
-
-          {/* 6. Projected / completion result */}
-          <Text style={sv.sectionLabel}>
-            {data.positive_points_unlocked ? 'Completion result' : 'Projected at completion'}
-          </Text>
-          <View style={sv.projectedRow}>
-            <Text style={[
-              sv.projectedValue,
-              data.positive_points_unlocked ? { color: GREEN } : undefined,
-            ]}>
+          {/* At-completion projection */}
+          <View style={sv.completionRow}>
+            <Text style={sv.completionLabel}>
+              {data.positive_points_unlocked ? 'Completion result' : 'At completion'}
+            </Text>
+            <Text style={[sv.completionValue, data.positive_points_unlocked ? { color: GREEN } : undefined]}>
               {data.projected_completed_contribution > 0 ? '+' : ''}
-              {data.projected_completed_contribution}
+              {data.projected_completed_contribution} pts
             </Text>
-            <Text style={[
-              sv.projectedUnit,
-              data.positive_points_unlocked ? { color: GREEN } : undefined,
-            ]}>pts</Text>
           </View>
-          <Text style={[
-            sv.projectedNote,
-            data.positive_points_unlocked ? { color: '#15803D' } : undefined,
-          ]}>
-            {data.positive_points_unlocked
-              ? 'Applied to your IOU Score'
-              : 'Pending until this IOU is completed'}
-          </Text>
 
-          {/* 7. Locked-state explanation */}
-          {!data.positive_points_unlocked && (
-            <Text style={sv.lockedExplanation}>
-              {data.positive_points_unlock_condition || 'Positive points will apply to your IOU Score when this IOU is completed.'}
-            </Text>
-          )}
-
-          {/* Technical details — collapsible */}
-          <TouchableOpacity
-            onPress={() => setTechOpen(o => !o)}
-            style={sv.techToggle}
-            activeOpacity={0.7}
-          >
-            <Text style={sv.techToggleText}>{techOpen ? '▾' : '▸'} Technical details</Text>
+          {/* Details toggle */}
+          <TouchableOpacity onPress={() => setTechOpen(o => !o)} style={sv.detailsToggle} accessibilityRole="button">
+            <Text style={sv.detailsToggleText}>{techOpen ? '▾' : '▸'} Details</Text>
           </TouchableOpacity>
 
           {techOpen && (
-            <View style={sv.techBox}>
-              <Text style={sv.techLine}>model: {data.model_version}</Text>
-              <Text style={sv.techLine}>agreement: {data.score_agreement_id}</Text>
-              <Text style={sv.techLine}>
-                completion pts: {data.completion_progress_points} / {data.completion_reward_max}
-              </Text>
-              <Text style={sv.techLine}>
-                early bonus: {data.early_bonus_earned} / {data.early_bonus_max}
-              </Text>
-              <Text style={sv.techLine}>pending pts: +{data.pending_positive_points}</Text>
-              <Text style={sv.techLine}>active penalties: −{data.active_penalties}</Text>
-              <Text style={sv.techLine}>repayment: {(data.repayment_fraction * 100).toFixed(1)}%</Text>
-              <Text style={sv.techLine}>
-                completed: {String(data.agreement_completed)} · unlocked: {String(data.positive_points_unlocked)}
-              </Text>
+            <View style={sv.detailsBox}>
+              <View style={sv.detailsRow}>
+                <Text style={sv.detailsLabel}>Completion credit</Text>
+                <Text style={sv.detailsValue}>{data.completion_progress_points} / {data.completion_reward_max} pts</Text>
+              </View>
+              {data.early_bonus_max > 0 && (
+                <View style={sv.detailsRow}>
+                  <Text style={sv.detailsLabel}>Early bonus</Text>
+                  <Text style={sv.detailsValue}>{data.early_bonus_earned} / {data.early_bonus_max} pts</Text>
+                </View>
+              )}
+              {data.active_penalties > 0 && (
+                <View style={sv.detailsRow}>
+                  <Text style={sv.detailsLabel}>Active penalty</Text>
+                  <Text style={[sv.detailsValue, { color: theme.negative }]}>−{data.active_penalties} pts</Text>
+                </View>
+              )}
+              {!data.positive_points_unlocked && data.pending_positive_points > 0 && (
+                <View style={sv.detailsRow}>
+                  <Text style={sv.detailsLabel}>Pending points</Text>
+                  <Text style={sv.detailsValue}>+{data.pending_positive_points} pts</Text>
+                </View>
+              )}
+              {!data.positive_points_unlocked && !!data.positive_points_unlock_condition && (
+                <Text style={sv.detailsNote}>{data.positive_points_unlock_condition}</Text>
+              )}
+              <View style={[sv.detailsRow, { marginTop: 4 }]}>
+                <Text style={sv.techKey}>model</Text>
+                <Text style={sv.techVal}>{data.model_version}</Text>
+              </View>
             </View>
           )}
-
         </View>
       )}
+
+      <TouchableOpacity
+        onPress={onRefresh}
+        style={sv.refreshFooter}
+        disabled={loading}
+        accessibilityRole="button"
+        accessibilityLabel="Refresh score progress"
+      >
+        <Text style={[sv.refreshFooterText, loading ? { opacity: 0.35 } : undefined]}>↻ Refresh</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -957,6 +689,17 @@ export default function LoanDetail({ route, navigation }: any) {
   const [scenarioData, setScenarioData] = useState<Partial<Record<ScenarioId, IouScoreScenario>>>({});
   const [scenarioLoading, setScenarioLoading] = useState(false);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
+
+  // Per-tab scroll refs — EstimateTab uses estimateScrollRef to avoid remount on scenario changes
+  const overviewScrollRef = useRef<ScrollView>(null);
+  const paymentsScrollRef = useRef<ScrollView>(null);
+  const scoreScrollRef = useRef<ScrollView>(null);
+  const estimateScrollRef = useRef<ScrollView>(null);
+
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [explanationExpanded, setExplanationExpanded] = useState(false);
+  const [expandedBreakdownItem, setExpandedBreakdownItem] = useState<string | null>(null);
 
   // -------------------------------------------
   // AUTH
@@ -1227,12 +970,18 @@ export default function LoanDetail({ route, navigation }: any) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [iou?.id, me, fetchScoreV22Progress]);
 
-  // Score Impact tab: fetch progress + scenario when user opens the tab
+  // Score tab: fetch v2.2 progress when user opens the factual Score tab
   useEffect(() => {
     if (activeTab !== 'score' || !iouId || !isBorrower) return;
     if (!scoreV22Data && !scoreV22Loading) {
       void fetchScoreV22Progress();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, iouId, isBorrower]);
+
+  // Estimate tab: fetch the selected scenario projection when user opens the tab
+  useEffect(() => {
+    if (activeTab !== 'estimate' || !iouId || !isBorrower) return;
     if (!scenarioData[scoreScenario] && !scenarioLoading) {
       void fetchScoreScenario(scoreScenario);
     }
@@ -1294,22 +1043,6 @@ export default function LoanDetail({ route, navigation }: any) {
       Math.max(totalInstallments, rows.length) - paidInstallments
     );
   }, [paidInstallments, rows.length, totalInstallments]);
-
-  // Payment sections for the Payments tab SectionList
-  const paymentSectionData = useMemo((): PaymentSectionData[] => {
-    const unpaid = rows.filter(r => !r.paid_at && r.status !== 'pending_confirmation' && r.status !== 'processing');
-    const pending = rows.filter(r => !r.paid_at && (r.status === 'pending_confirmation' || r.status === 'processing'));
-    const paid = rows.filter(r => !!r.paid_at);
-    const sections: PaymentSectionData[] = [];
-    if (unpaid.length > 0) {
-      const firstLabel = unpaid[0].status === 'late' ? 'Overdue' : 'Next';
-      sections.push({ title: firstLabel, data: [unpaid[0]] });
-      if (unpaid.length > 1) sections.push({ title: 'Upcoming', data: unpaid.slice(1) });
-    }
-    if (pending.length > 0) sections.push({ title: 'Pending', data: pending });
-    if (paid.length > 0) sections.push({ title: 'Completed', data: paid });
-    return sections;
-  }, [rows]);
 
   const pendingCount = useMemo(
     () =>
@@ -1750,35 +1483,70 @@ export default function LoanDetail({ route, navigation }: any) {
 
   const scoreImpactLinkLabel = nextPaymentCompletesIou
     ? 'See estimated payoff impact →'
-    : 'See estimated score impact →';
+    : 'See estimated impact →';
 
-  // Switch to Score Impact tab and select the relevant scenario.
-  // The score link is only shown to the borrower, so isBorrower is always true here,
-  // but guard defensively so the RPC is never called for a lender.
+  // Navigate to Estimate tab. Always use pay_next_today — it equals payoff_today when one
+  // payment remains, and is the relevant "pay next" estimate when multiple remain.
   const handleScoreImpactLink = useCallback(() => {
-    const scenario: ScenarioId = nextPaymentCompletesIou ? 'payoff_today' : 'pay_next_today';
-    setScoreScenario(scenario);
-    setActiveTab('score');
-    if (isBorrower && !scenarioData[scenario] && !scenarioLoading) {
-      void fetchScoreScenario(scenario);
+    setScoreScenario('pay_next_today');
+    setActiveTab('estimate');
+    if (isBorrower && !scenarioData['pay_next_today'] && !scenarioLoading) {
+      void fetchScoreScenario('pay_next_today');
     }
-  }, [nextPaymentCompletesIou, isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
+  }, [isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
 
-  // Change the selected scenario and fetch if not cached
+  // Change the selected scenario, reset expanded breakdown state, and fetch if not cached
   const handleScenarioChange = useCallback((scenario: ScenarioId) => {
     setScoreScenario(scenario);
+    setExplanationExpanded(false);
+    setExpandedBreakdownItem(null);
     if (isBorrower && !scenarioData[scenario] && !scenarioLoading) {
       void fetchScoreScenario(scenario);
     }
   }, [isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
 
-  // Switch tab and trigger scenario fetch when opening Score Impact tab directly
+  // Switch tab, trigger scenario fetch when opening Estimate tab, pre-fetch teaser when opening Payments
   const handleTabChange = useCallback((tab: TabId) => {
     setActiveTab(tab);
-    if (tab === 'score' && isBorrower && !scenarioData[scoreScenario] && !scenarioLoading) {
+    if (tab === 'estimate' && isBorrower && !scenarioData[scoreScenario] && !scenarioLoading) {
       void fetchScoreScenario(scoreScenario);
     }
-  }, [scoreScenario, isBorrower, scenarioData, scenarioLoading, fetchScoreScenario]);
+    if (tab === 'payments' && isBorrower && isOutgoingView && !scenarioData['pay_next_today'] && !scenarioLoading) {
+      void fetchScoreScenario('pay_next_today');
+    }
+  }, [scoreScenario, isBorrower, isOutgoingView, scenarioData, scenarioLoading, fetchScoreScenario]);
+
+  // Scenario selector options — shared between Estimate tab (inline) and Payments teaser.
+  // pay_next_today and payoff_today are equivalent when only one payment remains — hide payoff_today.
+  const eligibleScenarios = useMemo(() => {
+    const nextPayEligible = !!nextDue && isOutgoingView && !isArchived && !isDeleted &&
+      !nextDue.paid_at && (nextDue.status === 'scheduled' || nextDue.status === 'late');
+    const anyPayEligible = isOutgoingView && !isArchived && !isDeleted &&
+      rows.some(r => !r.paid_at && (r.status === 'scheduled' || r.status === 'late'));
+    const singleLeft = paymentsRemaining <= 1;
+    const all = [
+      {
+        id: 'pay_next_today' as ScenarioId,
+        label: singleLeft ? 'Pay early' : 'Pay next installment early',
+        frontendEligible: nextPayEligible,
+      },
+      {
+        id: 'payoff_today' as ScenarioId,
+        label: 'Pay off balance',
+        frontendEligible: !singleLeft && anyPayEligible && remainingTotal > 0,
+      },
+      {
+        id: 'complete_on_schedule' as ScenarioId,
+        label: 'Stay on schedule',
+        frontendEligible: iou?.status === 'open' || iou?.status === 'late',
+      },
+    ];
+    // Remove payoff_today when it duplicates pay_next_today (single payment remaining)
+    return all.filter(sc => sc.id !== 'payoff_today' || !singleLeft);
+  }, [nextDue, isOutgoingView, isArchived, isDeleted, rows, remainingTotal, iou?.status, paymentsRemaining]);
+
+  // Payments tab teaser — shows cached pay_next_today data (borrower outgoing only)
+  const paymentsTeaserData = (isBorrower && isOutgoingView) ? (scenarioData['pay_next_today'] ?? null) : null;
 
   // -------------------------------------------
   // SMALL UI COMPONENTS
@@ -2078,9 +1846,6 @@ export default function LoanDetail({ route, navigation }: any) {
             {/* Primary actions — outgoing unpaid */}
             {!item.paid_at && canPay && (
               <View style={s.actionArea}>
-                <TouchableOpacity style={s.btnPrimary} onPress={() => goToAchPayScreen(item)} activeOpacity={0.85}>
-                  <Text style={s.btnPrimaryText}>{item.status === 'late' ? 'Pay now' : 'Pay early'}</Text>
-                </TouchableOpacity>
                 {canRequestExtension && (
                   <TouchableOpacity
                     style={s.btnSecondary}
@@ -2205,16 +1970,20 @@ export default function LoanDetail({ route, navigation }: any) {
           {formatDate(nextDue.due)}
         </Text>
       )}
+      <TouchableOpacity onPress={() => setDetailsVisible(true)} style={s.topDetailsLink} activeOpacity={0.8}>
+        <Text style={s.topDetailsLinkText}>Details →</Text>
+      </TouchableOpacity>
     </View>
   );
 
-  // Segmented tab bar
+  // Segmented tab bar (4 tabs)
   const TabBar = () => (
     <View style={s.tabBar} accessibilityRole="tablist">
       {([
         { id: 'overview' as TabId, label: 'Overview' },
         { id: 'payments' as TabId, label: 'Payments' },
-        { id: 'score' as TabId, label: 'Score Impact' },
+        { id: 'score' as TabId, label: 'Score' },
+        { id: 'estimate' as TabId, label: 'Estimate' },
       ]).map(({ id, label }) => (
         <TouchableOpacity
           key={id}
@@ -2233,201 +2002,173 @@ export default function LoanDetail({ route, navigation }: any) {
     </View>
   );
 
-  // Tab 1 — Overview
-  const OverviewTab = () => {
-    const freqLabel =
-      iou.frequency === 'weekly' ? 'Weekly' :
-      iou.frequency === 'biweekly' ? 'Biweekly' : 'Monthly';
+  // Details bottom sheet — agreement metadata, borrower/lender info, contract link
+  const DetailsSheet = () => {
+    if (!detailsVisible) return null;
+    const freqLabel = iou.frequency === 'weekly' ? 'Weekly' : iou.frequency === 'biweekly' ? 'Biweekly' : 'Monthly';
     const aprLabel = iou.apr_bps != null ? `${(iou.apr_bps / 100).toFixed(2)}%` : 'N/A';
-
     return (
-      <ScrollView
-        contentContainerStyle={s.tabContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      <Modal
+        transparent
+        visible={detailsVisible}
+        animationType="slide"
+        onRequestClose={() => setDetailsVisible(false)}
       >
-        {/* Pending confirmation banner (lender) */}
-        {isIncomingView && incomingPendingCount > 0 && (
-          <View style={s.pendingConfirmCard}>
-            <Text style={s.pendingConfirmTitle}>Manual payment received?</Text>
-            <Text style={s.pendingConfirmBody}>
-              {incomingPendingCount === 1
-                ? 'The borrower manually submitted 1 payment outside AutoPay. Go to Payments to confirm or reject.'
-                : `The borrower manually submitted ${incomingPendingCount} payments outside AutoPay. Go to Payments to confirm each.`}
-            </Text>
+        <TouchableOpacity style={s.sheetOverlay} activeOpacity={1} onPress={() => setDetailsVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={s.sheetCard} onPress={() => {}}>
+            <View style={s.sheetHandle} />
+            <Text style={s.sheetTitle}>{iou.title ?? 'Agreement details'}</Text>
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>Lender</Text>
+              <Text style={s.sheetValue}>{isIncomingView ? 'You' : '—'}</Text>
+            </View>
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>Borrower</Text>
+              <Text style={s.sheetValue}>{isBorrower ? 'You' : (borrowerProfile?.public_name ?? '—')}</Text>
+            </View>
+            <View style={s.sheetDivider} />
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>Principal</Text>
+              <Text style={s.sheetValue}>{currency(iou.principal_cents)}</Text>
+            </View>
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>Frequency</Text>
+              <Text style={s.sheetValue}>{freqLabel}</Text>
+            </View>
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>Term</Text>
+              <Text style={s.sheetValue}>{iou.term_months} months</Text>
+            </View>
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>APR</Text>
+              <Text style={s.sheetValue}>{aprLabel}</Text>
+            </View>
+            {!!iou.start_date && (
+              <View style={s.sheetRow}>
+                <Text style={s.sheetLabel}>Start date</Text>
+                <Text style={s.sheetValue}>{formatDate(iou.start_date)}</Text>
+              </View>
+            )}
+            <View style={s.sheetRow}>
+              <Text style={s.sheetLabel}>Status</Text>
+              <Text style={s.sheetValue}>{iou.status}</Text>
+            </View>
+            <View style={s.sheetDivider} />
             <TouchableOpacity
-              style={s.pendingConfirmCta}
-              onPress={() => handleTabChange('payments')}
+              style={s.sheetActionRow}
+              onPress={() => { setDetailsVisible(false); openFullLoan(); }}
+              activeOpacity={0.8}
             >
-              <Text style={s.pendingConfirmCtaText}>Go to Payments →</Text>
+              <Text style={s.sheetActionText}>View contract →</Text>
             </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Next / overdue payment info card */}
-        {!!nextDue && !isComplete && (
-          <View style={[
-            s.nextPayCard,
-            nextDue.status === 'late' && { borderColor: theme.negativeBorder },
-          ]}>
-            <Text style={[
-              s.nextPayLabel,
-              nextDue.status === 'late' && { color: theme.negative },
-            ]}>
-              {nextDue.status === 'late' ? 'Overdue payment' : 'Next payment'}
-            </Text>
-            <Text style={[
-              s.nextPayAmt,
-              nextDue.status === 'late' && { color: theme.negative },
-            ]}>
-              {currency(nextDue.amount_cents)}
-            </Text>
-            <Text style={s.nextPayDate}>Due {formatDate(nextDue.due)}</Text>
-
-            {isOutgoingView && nextDue.status === 'scheduled' && (
-              <Text style={s.nextPayMethod}>Autopay withdraws on the due date</Text>
-            )}
-            {isOutgoingView && nextDue.status === 'late' && (
-              <Text style={[s.nextPayMethod, { color: theme.negative }]}>
-                Payment was not collected — pay now to resolve
-              </Text>
-            )}
-            {isOutgoingView && nextDue.status === 'processing' && (
-              <Text style={[s.nextPayMethod, { color: BLUE }]}>ACH payment in progress</Text>
-            )}
-            {isOutgoingView && nextDue.status === 'pending_confirmation' && (
-              <Text style={[s.nextPayMethod, { color: BLUE }]}>
-                Manual payment submitted · Waiting for lender
-              </Text>
-            )}
-
-            {/* Score impact link — borrower only, when payment is eligible */}
-            {isOutgoingView && isPayEligible(nextDue) && (
+            {isIncomingView && !!borrowerProfile?.public_name && (
               <TouchableOpacity
-                style={s.scoreImpactLink}
-                onPress={handleScoreImpactLink}
-                accessibilityRole="button"
-                accessibilityLabel={scoreImpactLinkLabel}
+                style={s.sheetActionRow}
+                onPress={() => { setDetailsVisible(false); navigateToPersonProfile(); }}
+                activeOpacity={0.8}
               >
-                <Text style={s.scoreImpactLinkText}>{scoreImpactLinkLabel}</Text>
+                <Text style={s.sheetActionText}>View borrower profile →</Text>
               </TouchableOpacity>
             )}
-          </View>
-        )}
-
-        {/* Completion card */}
-        {isComplete && (
-          <View style={[s.nextPayCard, { borderColor: theme.positiveBorder }]}>
-            <Text style={[s.nextPayLabel, { color: theme.positive }]}>IOU Complete</Text>
-            <Text style={s.nextPayAmt}>{currency(scheduledTotal)}</Text>
-            <Text style={s.nextPayDate}>
-              All {totalPayments} payment{totalPayments !== 1 ? 's' : ''} made
-            </Text>
-            <Text style={[s.nextPayMethod, { marginTop: 8 }]}>
-              Completion is reflected in your trust history.
-            </Text>
-          </View>
-        )}
-
-        {/* Compact agreement grid */}
-        <View style={s.agreementCard}>
-          <View style={s.agreementHeader}>
-            <Text style={s.agreementTitle}>Agreement</Text>
-            <TouchableOpacity onPress={openFullLoan} activeOpacity={0.8}>
-              <Text style={s.contractLinkText}>View contract</Text>
+            <TouchableOpacity style={s.sheetCloseRow} onPress={() => setDetailsVisible(false)} activeOpacity={0.8}>
+              <Text style={s.sheetCloseText}>Close</Text>
             </TouchableOpacity>
-          </View>
-          <View style={s.agreementGrid}>
-            <View style={s.agreementItem}>
-              <Text style={s.agreementLabel}>Frequency</Text>
-              <Text style={s.agreementValue}>{freqLabel}</Text>
-            </View>
-            <View style={s.agreementItem}>
-              <Text style={s.agreementLabel}>Term</Text>
-              <Text style={s.agreementValue}>{iou.term_months} mo</Text>
-            </View>
-            <View style={s.agreementItem}>
-              <Text style={s.agreementLabel}>APR</Text>
-              <Text style={s.agreementValue}>{aprLabel}</Text>
-            </View>
-            <View style={s.agreementItem}>
-              <Text style={s.agreementLabel}>Progress</Text>
-              <Text style={s.agreementValue}>{paidInstallments}/{totalPayments}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Borrower card (lender view) */}
-        {isIncomingView && !!borrowerProfile && (
-          <TouchableOpacity
-            style={s.borrowerCard}
-            onPress={navigateToPersonProfile}
-            activeOpacity={0.92}
-          >
-            <View style={s.borrowerCardHeader}>
-              <Text style={s.borrowerCardTitle}>Borrower</Text>
-              <Text style={s.borrowerCardLink}>View profile →</Text>
-            </View>
-            <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
-            <Text style={s.borrowerScoreLine}>
-              {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
-              {'  '}
-              <Text style={s.borrowerScoreMeta}>
-                {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
-              </Text>
-            </Text>
-            <Text style={s.streakText}>{repaymentStreakText}</Text>
           </TouchableOpacity>
-        )}
-      </ScrollView>
+        </TouchableOpacity>
+      </Modal>
     );
   };
 
-  // Tab 2 — Payments (full schedule + all actions)
-  const PaymentsTab = () => (
-    <SectionList
-      sections={paymentSectionData}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => {
-        const origIndex = rows.findIndex(r => r.id === item.id);
-        return (
-          <PaymentRowView
-            item={item}
-            index={origIndex}
-            isFirstUnpaid={isOutgoingView && origIndex === firstUnpaidIndex}
-            isFirstConfirm={isIncomingView && origIndex === firstConfirmIndex}
-          />
-        );
-      }}
-      renderSectionHeader={({ section }) => (
-        <View style={s.sectionHeaderView}>
-          <Text style={s.sectionHeaderText}>{section.title}</Text>
-        </View>
-      )}
+  // Tab 1 — Overview (next payment + estimate link only)
+  const OverviewTab = () => (
+    <ScrollView
+      ref={overviewScrollRef}
       contentContainerStyle={s.tabContent}
-      ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-      stickySectionHeadersEnabled={false}
+      showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      ListEmptyComponent={
-        <View style={s.emptyWrap}>
-          <Text style={s.emptyText}>No payments found.</Text>
-        </View>
-      }
-      ListFooterComponent={
-        <View style={s.paymentsFooter}>
-          <View style={s.rewardCard}>
-            <Text style={s.rewardText}>{completionRewardText}</Text>
-          </View>
-          <TouchableOpacity style={s.contractBtn} onPress={openFullLoan} activeOpacity={0.8}>
-            <Text style={s.contractBtnText}>View full contract</Text>
+    >
+      {/* Pending confirmation banner (lender) */}
+      {isIncomingView && incomingPendingCount > 0 && (
+        <View style={s.pendingConfirmCard}>
+          <Text style={s.pendingConfirmTitle}>Manual payment received?</Text>
+          <Text style={s.pendingConfirmBody}>
+            {incomingPendingCount === 1
+              ? 'The borrower manually submitted 1 payment outside AutoPay. Go to Payments to confirm or reject.'
+              : `The borrower manually submitted ${incomingPendingCount} payments outside AutoPay. Go to Payments to confirm each.`}
+          </Text>
+          <TouchableOpacity style={s.pendingConfirmCta} onPress={() => handleTabChange('payments')}>
+            <Text style={s.pendingConfirmCtaText}>Go to Payments →</Text>
           </TouchableOpacity>
         </View>
-      }
-    />
+      )}
+
+      {/* Current/overdue payment card */}
+      {!!nextDue && !isComplete && (
+        <View style={[s.nextPayCard, nextDue.status === 'late' && { borderColor: theme.negativeBorder }]}>
+          <Text style={[s.nextPayLabel, nextDue.status === 'late' && { color: theme.negative }]}>
+            {nextDue.status === 'late' ? 'Overdue payment' : 'Next payment'}
+          </Text>
+          <Text style={[s.nextPayAmt, nextDue.status === 'late' && { color: theme.negative }]}>
+            {currency(nextDue.amount_cents)}
+          </Text>
+          <Text style={s.nextPayDate}>Due {formatDate(nextDue.due)}</Text>
+          {isOutgoingView && nextDue.status === 'scheduled' && (
+            <Text style={s.nextPayMethod}>Autopay on due date</Text>
+          )}
+          {isOutgoingView && nextDue.status === 'late' && (
+            <Text style={[s.nextPayMethod, { color: theme.negative }]}>
+              Payment was not collected — pay now to resolve
+            </Text>
+          )}
+          {isOutgoingView && nextDue.status === 'processing' && (
+            <Text style={[s.nextPayMethod, { color: BLUE }]}>ACH payment in progress</Text>
+          )}
+          {isOutgoingView && nextDue.status === 'pending_confirmation' && (
+            <Text style={[s.nextPayMethod, { color: BLUE }]}>
+              Manual payment submitted · Waiting for lender
+            </Text>
+          )}
+          {isOutgoingView && isPayEligible(nextDue) && (
+            <TouchableOpacity
+              style={s.scoreImpactLink}
+              onPress={handleScoreImpactLink}
+              accessibilityRole="button"
+              accessibilityLabel={scoreImpactLinkLabel}
+            >
+              <Text style={s.scoreImpactLinkText}>{scoreImpactLinkLabel}</Text>
+            </TouchableOpacity>
+          )}
+          {isOutgoingView && !nextDue.paid_at && (nextDue.status === 'scheduled' || nextDue.status === 'late') && (
+            <TouchableOpacity
+              style={s.missedPayLink}
+              onPress={() => navigation.navigate('MissedPaymentImpact', { iouId: iou.id, paymentId: nextDue.id })}
+              accessibilityRole="button"
+              accessibilityLabel="See what happens if this payment is missed"
+            >
+              <Text style={s.missedPayLinkText}>Need more time?</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Completion card */}
+      {isComplete && (
+        <View style={[s.nextPayCard, { borderColor: theme.positiveBorder }]}>
+          <Text style={[s.nextPayLabel, { color: theme.positive }]}>IOU Complete</Text>
+          <Text style={s.nextPayAmt}>{currency(scheduledTotal)}</Text>
+          <Text style={s.nextPayDate}>
+            All {totalPayments} payment{totalPayments !== 1 ? 's' : ''} made
+          </Text>
+          <Text style={[s.nextPayMethod, { marginTop: 8 }]}>
+            Completion is reflected in your trust history.
+          </Text>
+        </View>
+      )}
+    </ScrollView>
   );
 
-  // Tab 3 — Score Impact
-  const ScoreImpactTab = () => {
+  // Tab 3 — Score (factual current state only; no hypothetical projections)
+  const ScoreTab = () => {
     if (!isBorrower) {
       return (
         <ScrollView contentContainerStyle={s.tabContent}>
@@ -2462,32 +2203,9 @@ export default function LoanDetail({ route, navigation }: any) {
       );
     }
 
-    // Frontend eligibility pre-filter.
-    // The backend also validates — if eligible: false comes back, the projection card shows the reason.
-    const eligibleScenarios: { id: ScenarioId; label: string; frontendEligible: boolean }[] = [
-      {
-        id: 'pay_next_today',
-        label: 'Pay next\ntoday',
-        frontendEligible: !!nextDue && isPayEligible(nextDue),
-      },
-      {
-        id: 'payoff_today',
-        label: 'Pay off\ntoday',
-        frontendEligible: isOutgoingView && !isArchived && !isDeleted && remainingTotal > 0 && rows.some(r => isPayEligible(r)),
-      },
-      {
-        id: 'complete_on_schedule',
-        label: 'On\nschedule',
-        frontendEligible: iou.status === 'open' || iou.status === 'late',
-      },
-    ];
-
-    const activeScenarioData = scenarioData[scoreScenario] ?? null;
-
     return (
-      <ScrollView contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
-
-        {/* Current state card — uses Score v2.2 progress data */}
+      <ScrollView ref={scoreScrollRef} contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
+        {/* Current factual state — Score v2.2 progress */}
         <ScoreV22DevCard
           data={scoreV22Data}
           loading={scoreV22Loading}
@@ -2495,65 +2213,16 @@ export default function LoanDetail({ route, navigation }: any) {
           onRefresh={() => { void fetchScoreV22Progress(); }}
           showDevBadge={__DEV__}
         />
-
-        {/* Scenario selector + projection */}
-        <View style={s.scenarioSection}>
-          <View style={s.scenarioTitleRow}>
-            <Text style={s.scenarioTitle}>Estimate if you…</Text>
-            <Text style={s.scoreV22Label}>Score v2.2 estimate — Shadow</Text>
-          </View>
-          <View style={s.scenarioRow}>
-            {eligibleScenarios.map(({ id, label, frontendEligible }) => (
-              <TouchableOpacity
-                key={id}
-                style={[
-                  s.scenarioBtn,
-                  scoreScenario === id && s.scenarioBtnActive,
-                  !frontendEligible && s.scenarioBtnDisabled,
-                ]}
-                onPress={() => frontendEligible && handleScenarioChange(id)}
-                disabled={!frontendEligible}
-                accessibilityRole="button"
-                accessibilityState={{ selected: scoreScenario === id, disabled: !frontendEligible }}
-                accessibilityLabel={label.replace('\n', ' ')}
-              >
-                <Text style={[
-                  s.scenarioBtnText,
-                  scoreScenario === id && s.scenarioBtnTextActive,
-                  !frontendEligible && s.scenarioBtnTextDisabled,
-                ]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Projection card */}
-        <ScoreProjectionCard
-          data={activeScenarioData}
-          loading={scenarioLoading}
-          error={scenarioError}
-          onRetry={() => { void fetchScoreScenario(scoreScenario); }}
-        />
-
-        {/* Disclaimer */}
-        <Text style={s.scoreDisclaimer}>
-          Estimates use your current score, this IOU's payment history, active exposure, and the current Score v2.2 rules.
-          Final results may differ if other activity changes first.
-        </Text>
-
-        {/* CTA back to pay (borrower, when eligible) */}
-        {isOutgoingView && !!nextDue && isPayEligible(nextDue) && (
+        {/* Link to hypothetical estimate tab */}
+        {isOutgoingView && (
           <TouchableOpacity
-            style={s.scorePayCta}
-            onPress={() => handleTabChange('overview')}
+            style={s.scoreToEstimateLink}
+            onPress={() => handleTabChange('estimate')}
             accessibilityRole="button"
           >
-            <Text style={s.scorePayCtaText}>Go to Overview to pay →</Text>
+            <Text style={s.scoreToEstimateLinkText}>See what paying today could do →</Text>
           </TouchableOpacity>
         )}
-
       </ScrollView>
     );
   };
@@ -2588,16 +2257,425 @@ export default function LoanDetail({ route, navigation }: any) {
   // RENDER
   // -------------------------------------------
 
+  // Payments tab — inline (not a component) to prevent ScrollView remount when historyExpanded or scenarioLoading changes
+  const _pUnpaid = rows.filter(r => !r.paid_at && r.status !== 'pending_confirmation' && r.status !== 'processing');
+  const _pPending = rows.filter(r => !r.paid_at && (r.status === 'pending_confirmation' || r.status === 'processing'));
+  const _pPaid = rows.filter(r => !!r.paid_at);
+  const _pCurrent = _pUnpaid[0] ?? null;
+  const _pCurrentIdx = _pCurrent ? rows.findIndex(r => r.id === _pCurrent.id) : -1;
+  const _pUpcoming = _pUnpaid.slice(1);
+
+  const paymentsTabInner = activeTab === 'payments' ? (
+    <ScrollView
+      ref={paymentsScrollRef}
+      contentContainerStyle={s.tabContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
+      {rows.length === 0 && (
+        <View style={s.emptyWrap}><Text style={s.emptyText}>No payments found.</Text></View>
+      )}
+
+      {/* A. Current / overdue payment */}
+      {!!_pCurrent && (
+        <View style={{ marginBottom: 12 }}>
+          <PaymentRowView
+            item={_pCurrent}
+            index={_pCurrentIdx}
+            isFirstUnpaid={isOutgoingView && _pCurrentIdx === firstUnpaidIndex}
+            isFirstConfirm={isIncomingView && _pCurrentIdx === firstConfirmIndex}
+          />
+        </View>
+      )}
+
+      {/* A1. Can't make this payment — borrower-only, below current/overdue row */}
+      {isOutgoingView && !!_pCurrent && !_pCurrent.paid_at && (_pCurrent.status === 'scheduled' || _pCurrent.status === 'late') && (
+        <TouchableOpacity
+          style={s.missedPayBannerLink}
+          onPress={() => navigation.navigate('MissedPaymentImpact', { iouId: iou.id, paymentId: _pCurrent.id })}
+          accessibilityRole="button"
+          accessibilityLabel="Can't make this payment? See your options"
+        >
+          <Text style={s.missedPayBannerText}>
+            {_pCurrent.status === 'late'
+              ? 'This payment is overdue — see your options →'
+              : "Can't make this payment? See your options →"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* B. Score teaser — immediately below current payment */}
+      {isBorrower && !!paymentsTeaserData && paymentsTeaserData.eligible && !!_pCurrent && (
+        <View style={s.teaserCard}>
+          <Text style={s.teaserTitle}>If confirmed today</Text>
+          <Text style={s.teaserVizLabel}>Visible Trust</Text>
+          <View style={s.teaserScoreRow}>
+            <Text style={s.teaserScoreFrom}>{paymentsTeaserData.currentVisibleTrust}</Text>
+            <Text style={s.teaserScoreArrow}>{' → '}</Text>
+            <Text style={s.teaserScoreTo}>{paymentsTeaserData.projectedVisibleTrust}</Text>
+          </View>
+          {paymentsTeaserData.visibleTrustDelta > 0 && (
+            <Text style={s.teaserScoreDelta}>{`Estimated +${paymentsTeaserData.visibleTrustDelta}`}</Text>
+          )}
+          <TouchableOpacity onPress={() => handleTabChange('estimate')} accessibilityRole="button">
+            <Text style={s.teaserLink}>View full estimate →</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Pending payments */}
+      {_pPending.length > 0 && (
+        <View style={{ marginTop: 14 }}>
+          <Text style={[s.sectionHeaderText, { marginBottom: 8 }]}>Pending</Text>
+          {_pPending.map((item) => {
+            const idx = rows.findIndex(r => r.id === item.id);
+            return (
+              <View key={item.id} style={{ marginBottom: 8 }}>
+                <PaymentRowView item={item} index={idx} isFirstConfirm={isIncomingView && idx === firstConfirmIndex} />
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* C. Upcoming payments */}
+      {_pUpcoming.length > 0 && (
+        <View style={{ marginTop: 14 }}>
+          <Text style={[s.sectionHeaderText, { marginBottom: 8 }]}>Upcoming</Text>
+          {_pUpcoming.map((item) => {
+            const idx = rows.findIndex(r => r.id === item.id);
+            return (
+              <View key={item.id} style={{ marginBottom: 8 }}>
+                <PaymentRowView item={item} index={idx} />
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* D. Payment history disclosure */}
+      {_pPaid.length > 0 && (
+        <View style={{ marginTop: 14 }}>
+          <TouchableOpacity
+            style={s.historyDisclosure}
+            onPress={() => setHistoryExpanded(h => !h)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <Text style={s.historyDisclosureText}>{`Payment history (${_pPaid.length})`}</Text>
+            <Text style={s.historyDisclosureChevron}>{historyExpanded ? '↑' : '→'}</Text>
+          </TouchableOpacity>
+          {historyExpanded && _pPaid.map((item) => {
+            const idx = rows.findIndex(r => r.id === item.id);
+            return (
+              <View key={item.id} style={{ marginBottom: 8 }}>
+                <PaymentRowView item={item} index={idx} />
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* Footer */}
+      <View style={{ height: 16 }} />
+      {isComplete && (
+        <View style={s.rewardCard}>
+          <Text style={s.rewardText}>{completionRewardText}</Text>
+        </View>
+      )}
+      <TouchableOpacity style={s.contractBtn} onPress={openFullLoan} activeOpacity={0.8}>
+        <Text style={s.contractBtnText}>View full contract</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  ) : null;
+
+  // ── Estimate tab gauge — computed from backend data; no frontend score math ───
+  const _estimateSc = scenarioData[scoreScenario] ?? null;
+  const _iouCeiling = scoreV22Data
+    ? scoreV22Data.completion_reward_max + scoreV22Data.early_bonus_max
+    : null;
+  const _gaugeRatio = (_estimateSc && _iouCeiling && _iouCeiling > 0)
+    ? Math.max(0, _estimateSc.projectedIouEffect) / _iouCeiling
+    : 0;
+  const _gaugeFillPath = halfDonutFillPath(_gaugeRatio);
+  const _scenarioInsight = _estimateSc
+    ? (_estimateSc.earlyBonusUnlocked > 0
+        ? 'Paying early captures the available early-payment bonus.'
+        : _estimateSc.completionCreditUnlocked > 0
+          ? 'Completing on schedule unlocks completion credit, but not the early-payment bonus.'
+          : null)
+    : null;
+
+  // Inline Estimate tab — rendered as a direct ScrollView (not a local component) so React
+  // reconciles in-place when scenarioLoading changes, preventing scroll-to-top on scenario switch.
+  const estimateTabInner = activeTab === 'estimate' ? (
+    isBorrower ? (
+      <ScrollView ref={estimateScrollRef} contentContainerStyle={s.tabContent} showsVerticalScrollIndicator={false}>
+        {/* Scenario selector — natural labels, payoff_today hidden when single payment remains */}
+        <View style={s.scenarioRow}>
+          {eligibleScenarios.map(({ id, label, frontendEligible }) => (
+            <TouchableOpacity
+              key={id}
+              style={[s.scenarioBtn, scoreScenario === id && s.scenarioBtnActive, !frontendEligible && s.scenarioBtnDisabled]}
+              onPress={() => frontendEligible && handleScenarioChange(id)}
+              disabled={!frontendEligible}
+              accessibilityRole="button"
+              accessibilityState={{ selected: scoreScenario === id, disabled: !frontendEligible }}
+              accessibilityLabel={label}
+            >
+              <Text style={[s.scenarioBtnText, scoreScenario === id && s.scenarioBtnTextActive, !frontendEligible && s.scenarioBtnTextDisabled]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Result card — minHeight holds layout during load to prevent scroll jump */}
+        <View style={s.projectionContainer}>
+          {(scenarioLoading && !scenarioData[scoreScenario]) ? (
+            <View style={s.forecastCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+                <ActivityIndicator size="small" color={BLUE} />
+                <Text style={s.forecastStateText}>Loading estimate…</Text>
+              </View>
+            </View>
+          ) : (scenarioError && !scenarioData[scoreScenario]) ? (
+            <View style={s.forecastCard}>
+              <Text style={s.forecastStateTitle}>Estimate unavailable</Text>
+              <TouchableOpacity style={s.forecastRetryBtn} onPress={() => { void fetchScoreScenario(scoreScenario); }} accessibilityRole="button">
+                <Text style={s.forecastRetryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (scenarioData[scoreScenario] && !scenarioData[scoreScenario]!.eligible) ? (
+            <View style={s.forecastCard}>
+              <Text style={s.forecastStateTitle}>Not available</Text>
+              <Text style={s.forecastStateBody}>{scenarioData[scoreScenario]!.explanation[0] ?? ''}</Text>
+            </View>
+          ) : _estimateSc ? (
+            <View style={s.forecastCard}>
+              <Text style={s.forecastTitle}>This IOU's projected contribution</Text>
+              <Text style={s.forecastSubtitle}>{'Estimated · if this payment is successfully confirmed today'}</Text>
+
+              {/* Half-donut gauge — ceiling from progress RPC, effect from scenario RPC */}
+              {_iouCeiling !== null && (
+                <View style={s.gaugeWrap}>
+                  <Svg width={G_W} height={G_H} viewBox={`0 0 ${G_W} ${G_H}`}>
+                    {/* Track */}
+                    <Path
+                      d={G_TRACK_PATH}
+                      stroke={theme.isDark ? '#2A2A2A' : '#E5E7EB'}
+                      strokeWidth={G_SW}
+                      fill="none"
+                      strokeLinecap="butt"
+                    />
+                    {/* Fill */}
+                    {!!_gaugeFillPath && (
+                      <Path
+                        d={_gaugeFillPath}
+                        stroke={GREEN}
+                        strokeWidth={G_SW}
+                        fill="none"
+                        strokeLinecap="round"
+                      />
+                    )}
+                    {/* Projected contribution value */}
+                    <SvgText
+                      x={G_CX}
+                      y={68}
+                      textAnchor="middle"
+                      fontSize={26}
+                      fontWeight="900"
+                      fill={theme.isDark ? '#FFFFFF' : '#0F172A'}
+                    >
+                      {`${_estimateSc.projectedIouEffect >= 0 ? '+' : ''}${_estimateSc.projectedIouEffect}`}
+                    </SvgText>
+                    {/* "of +N potential" caption */}
+                    <SvgText
+                      x={G_CX}
+                      y={85}
+                      textAnchor="middle"
+                      fontSize={11}
+                      fontWeight="600"
+                      fill={theme.isDark ? '#6B7280' : '#9CA3AF'}
+                    >
+                      {`of +${_iouCeiling} potential`}
+                    </SvgText>
+                  </Svg>
+                </View>
+              )}
+
+              {/* Score and Visible Trust supporting rows */}
+              <View style={s.supportRow}>
+                <Text style={s.supportLabel}>Score</Text>
+                <View style={s.supportRight}>
+                  <Text style={s.supportFrom}>{_estimateSc.currentScore}</Text>
+                  <Text style={s.supportArrow}>{' → '}</Text>
+                  <Text style={[s.supportTo, { color: theme.positive }]}>{_estimateSc.projectedScore}</Text>
+                  <Text style={[s.supportDelta, { color: theme.positive }]}>{`  +${_estimateSc.scoreDelta}`}</Text>
+                </View>
+              </View>
+              <View style={s.supportRow}>
+                <Text style={s.supportLabel}>Visible Trust</Text>
+                <View style={s.supportRight}>
+                  <Text style={s.supportFrom}>{_estimateSc.currentVisibleTrust}</Text>
+                  <Text style={s.supportArrow}>{' → '}</Text>
+                  <Text style={[s.supportTo, { color: theme.positive }]}>{_estimateSc.projectedVisibleTrust}</Text>
+                  <Text style={[s.supportDelta, { color: theme.positive }]}>{`  +${_estimateSc.visibleTrustDelta}`}</Text>
+                </View>
+              </View>
+
+              {/* Scenario-specific insight */}
+              {!!_scenarioInsight && <Text style={s.scenarioInsight}>{_scenarioInsight}</Text>}
+
+              {/* Completion badge */}
+              {_estimateSc.completesIou && (
+                <View style={s.completionBadge}>
+                  <Text style={s.completionBadgeText}>Completes this IOU</Text>
+                </View>
+              )}
+
+              {/* "See why" disclosure — collapsed by default */}
+              <TouchableOpacity
+                style={s.seeWhyToggle}
+                onPress={() => setExplanationExpanded(v => !v)}
+                accessibilityRole="button"
+              >
+                <Text style={s.seeWhyText}>{`See why this changes  ${explanationExpanded ? '↑' : '↓'}`}</Text>
+              </TouchableOpacity>
+
+              {explanationExpanded && (
+                <View style={s.seeWhyContent}>
+                  {_estimateSc.completionCreditUnlocked > 0 && (
+                    <TouchableOpacity
+                      style={s.breakdownItem}
+                      onPress={() => setExpandedBreakdownItem(v => v === 'completion' ? null : 'completion')}
+                      accessibilityRole="button"
+                    >
+                      <View style={s.breakdownItemRow}>
+                        <Text style={s.breakdownItemNum}>{`+${_estimateSc.completionCreditUnlocked}`}</Text>
+                        <Text style={s.breakdownItemLabel}>Completion credit</Text>
+                      </View>
+                      {expandedBreakdownItem === 'completion' && (
+                        <Text style={s.breakdownExplain}>Finishing the IOU unlocks the remaining completion credit.</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {_estimateSc.earlyBonusUnlocked > 0 && (
+                    <TouchableOpacity
+                      style={s.breakdownItem}
+                      onPress={() => setExpandedBreakdownItem(v => v === 'early' ? null : 'early')}
+                      accessibilityRole="button"
+                    >
+                      <View style={s.breakdownItemRow}>
+                        <Text style={s.breakdownItemNum}>{`+${_estimateSc.earlyBonusUnlocked}`}</Text>
+                        <Text style={s.breakdownItemLabel}>Early bonus</Text>
+                      </View>
+                      {expandedBreakdownItem === 'early' && (
+                        <Text style={s.breakdownExplain}>Paying before the due date qualifies this IOU for its available early-payment bonus.</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {_estimateSc.exposureReleased > 0 && (
+                    <TouchableOpacity
+                      style={s.breakdownItem}
+                      onPress={() => setExpandedBreakdownItem(v => v === 'exposure' ? null : 'exposure')}
+                      accessibilityRole="button"
+                    >
+                      <View style={s.breakdownItemRow}>
+                        <Text style={s.breakdownItemNum}>{`+${_estimateSc.exposureReleased}`}</Text>
+                        <Text style={s.breakdownItemLabel}>Exposure released</Text>
+                      </View>
+                      {expandedBreakdownItem === 'exposure' && (
+                        <Text style={s.breakdownExplain}>Completing the balance removes this IOU's active exposure.</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {_estimateSc.retainedPenalty > 0 && (
+                    <TouchableOpacity
+                      style={s.breakdownItem}
+                      onPress={() => setExpandedBreakdownItem(v => v === 'penalty' ? null : 'penalty')}
+                      accessibilityRole="button"
+                    >
+                      <View style={s.breakdownItemRow}>
+                        <Text style={[s.breakdownItemNum, { color: theme.negative }]}>{`−${_estimateSc.retainedPenalty}`}</Text>
+                        <Text style={[s.breakdownItemLabel, { color: theme.negative }]}>Penalty remains</Text>
+                      </View>
+                      {expandedBreakdownItem === 'penalty' && (
+                        <Text style={s.breakdownExplain}>The previously recorded late-payment penalty remains part of the history.</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  {_estimateSc.explanation.length > 0 && (
+                    <View style={s.explanationLines}>
+                      {_estimateSc.explanation.map((line, i) => (
+                        <Text key={i} style={s.explanationLine}>{`· ${line}`}</Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          ) : null}
+        </View>
+
+        {/* Miss-payment entry point — only when there's an active unpaid payment */}
+        {!!nextDue && !nextDue.paid_at && (nextDue.status === 'scheduled' || nextDue.status === 'late') && (
+          <TouchableOpacity
+            style={s.missedPayLink}
+            onPress={() => navigation.navigate('MissedPaymentImpact', { iouId: iou.id, paymentId: nextDue.id })}
+            accessibilityRole="button"
+            accessibilityLabel="See what happens if this payment is missed"
+          >
+            <Text style={s.missedPayLinkText}>See what happens if this payment is missed →</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Disclaimer — single short footer */}
+        <Text style={s.scoreDisclaimer}>
+          Estimates use your current Score v2.2 history. Results may change if other account activity occurs first.
+        </Text>
+      </ScrollView>
+    ) : (
+      <ScrollView contentContainerStyle={s.tabContent}>
+        <View style={s.scoreUnavailCard}>
+          <Text style={s.scoreUnavailTitle}>Score projections are private to the borrower</Text>
+          <Text style={s.scoreUnavailBody}>
+            The score contribution and projection details for this IOU are only available to the borrower.
+            As lender, you can view the borrower's public trust level from their profile.
+          </Text>
+        </View>
+        {!!borrowerProfile && (
+          <TouchableOpacity style={s.borrowerCard} onPress={navigateToPersonProfile} activeOpacity={0.92}>
+            <View style={s.borrowerCardHeader}>
+              <Text style={s.borrowerCardTitle}>Borrower</Text>
+              <Text style={s.borrowerCardLink}>View profile →</Text>
+            </View>
+            <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
+            <Text style={s.borrowerScoreLine}>
+              {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
+              {'  '}
+              <Text style={s.borrowerScoreMeta}>
+                {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
+              </Text>
+            </Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    )
+  ) : null;
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <TopSummary />
       <TabBar />
       <View style={{ flex: 1 }}>
         {activeTab === 'overview' && <OverviewTab />}
-        {activeTab === 'payments' && <PaymentsTab />}
-        {activeTab === 'score' && <ScoreImpactTab />}
+        {paymentsTabInner}
+        {activeTab === 'score' && <ScoreTab />}
+        {estimateTabInner}
       </View>
-      {activeTab !== 'score' && <StickyActionBar />}
+      {activeTab !== 'score' && activeTab !== 'estimate' && <StickyActionBar />}
+      <DetailsSheet />
     </View>
   );
 }
@@ -2700,6 +2778,21 @@ const makeS = (t: AppTheme) => StyleSheet.create({
     textDecorationLine: 'underline',
   },
 
+  // ── Missed payment entry points ───────────────────────────────────────────────
+  missedPayLink: { marginTop: 10, alignSelf: 'flex-start' },
+  missedPayLinkText: {
+    fontSize: 12, fontWeight: '600',
+    color: t.isDark ? '#FF8A80' : '#B42318',
+  },
+  missedPayBannerLink: {
+    paddingVertical: 10, paddingHorizontal: 2,
+    marginBottom: 4,
+  },
+  missedPayBannerText: {
+    fontSize: 13, fontWeight: '700',
+    color: t.isDark ? '#FF8A80' : '#B42318',
+  },
+
   // ── Compact agreement card (Overview) ────────────────────────────────────────
   agreementCard: {
     backgroundColor: t.surface, borderRadius: 14, padding: 16,
@@ -2734,10 +2827,6 @@ const makeS = (t: AppTheme) => StyleSheet.create({
   },
   scoreUnavailTitle: { fontSize: 15, fontWeight: '800', color: t.textPrimary, marginBottom: 6 },
   scoreUnavailBody: { fontSize: 13, fontWeight: '500', color: t.textSecondary, lineHeight: 20 },
-  scenarioSection: { marginTop: 14 },
-  scenarioTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
-  scenarioTitle: { fontSize: 13, fontWeight: '700', color: t.textMuted },
-  scoreV22Label: { fontSize: 11, fontWeight: '700', color: t.isDark ? '#FFD60A' : '#92400E' },
   scenarioRow: { flexDirection: 'row', gap: 8 },
   scenarioBtn: {
     flex: 1, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 10, alignItems: 'center',
@@ -2754,8 +2843,6 @@ const makeS = (t: AppTheme) => StyleSheet.create({
   scoreDisclaimer: {
     marginTop: 14, fontSize: 12, fontWeight: '500', color: t.textMuted, lineHeight: 18,
   },
-  scorePayCta: { marginTop: 14, alignSelf: 'flex-start' },
-  scorePayCtaText: { fontSize: 13, fontWeight: '700', color: t.isDark ? t.brandBright : t.brand },
 
   // ── Sticky action bar ─────────────────────────────────────────────────────────
   stickyBar: {
@@ -2972,4 +3059,165 @@ const makeS = (t: AppTheme) => StyleSheet.create({
     borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
   },
   devConfirmBtnText: { color: '#FFD60A', fontWeight: '800', fontSize: 13 },
+
+  // ── Score tab — link to Estimate tab ─────────────────────────────────────────
+  scoreToEstimateLink: { marginTop: 14, alignSelf: 'flex-start' },
+  scoreToEstimateLinkText: {
+    fontSize: 13, fontWeight: '700',
+    color: t.isDark ? t.brandBright : t.brand,
+    textDecorationLine: 'underline',
+  },
+
+  // ── Estimate tab — forecast card + dumbbell visual ───────────────────────────
+  projectionContainer: { marginTop: 2 },
+
+  // Card shell (shared across loading / error / data states)
+  forecastCard: {
+    backgroundColor: t.surface, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: t.border,
+  },
+  forecastStateText: { fontSize: 13, fontWeight: '600', color: t.textMuted },
+  forecastStateTitle: { fontSize: 14, fontWeight: '800', color: t.textSecondary, marginBottom: 6 },
+  forecastStateBody: { fontSize: 13, fontWeight: '500', color: t.textMuted, lineHeight: 19 },
+  forecastRetryBtn: {
+    marginTop: 10, alignSelf: 'flex-start',
+    paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: t.surfaceMuted, borderRadius: 8,
+    borderWidth: 1, borderColor: t.border,
+  },
+  forecastRetryText: { fontSize: 13, fontWeight: '700', color: t.textSecondary },
+
+  // Title + subtitle
+  forecastTitle: { fontSize: 15, fontWeight: '800', color: t.textPrimary, marginBottom: 2 },
+  forecastSubtitle: { fontSize: 12, fontWeight: '500', color: t.textMuted, lineHeight: 17, marginBottom: 14 },
+
+  // Half-donut gauge
+  gaugeWrap: { alignItems: 'center', marginVertical: 8 },
+
+  // Supporting score/trust rows beneath the gauge
+  supportRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 7,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.divider,
+  },
+  supportLabel: { fontSize: 13, fontWeight: '600', color: t.textSecondary },
+  supportRight: { flexDirection: 'row', alignItems: 'baseline' },
+  supportFrom: { fontSize: 14, fontWeight: '600', color: t.textMuted },
+  supportArrow: { fontSize: 12, fontWeight: '500', color: t.textMuted, marginHorizontal: 3 },
+  supportTo: { fontSize: 14, fontWeight: '800' },
+  supportDelta: { fontSize: 12, fontWeight: '700', marginLeft: 4 },
+
+  // Scenario insight sentence
+  scenarioInsight: {
+    fontSize: 12, fontWeight: '500', color: t.textMuted,
+    lineHeight: 17, marginTop: 8,
+  },
+
+  // Completion badge
+  completionBadge: {
+    alignSelf: 'flex-start', marginTop: 2, marginBottom: 8,
+    paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: t.positiveSurface, borderRadius: 6,
+    borderWidth: 1, borderColor: t.positiveBorder,
+  },
+  completionBadgeText: { fontSize: 11, fontWeight: '700', color: t.positive },
+
+  // "See why" disclosure
+  seeWhyToggle: {
+    marginTop: 8, paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.divider,
+  },
+  seeWhyText: { fontSize: 12, fontWeight: '700', color: t.isDark ? t.brandBright : t.brand },
+  seeWhyContent: { marginTop: 10, gap: 2 },
+
+  // Breakdown items inside expanded section
+  breakdownItem: { paddingVertical: 5 },
+  breakdownItemRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  breakdownItemNum: { fontSize: 14, fontWeight: '800', color: t.positive, minWidth: 30 },
+  breakdownItemLabel: { fontSize: 13, fontWeight: '600', color: t.textSecondary },
+  breakdownExplain: {
+    fontSize: 11, fontWeight: '500', color: t.textMuted,
+    lineHeight: 16, marginTop: 3, marginLeft: 38,
+  },
+
+  // Explanation bullets
+  explanationLines: {
+    marginTop: 8, gap: 3,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.divider, paddingTop: 8,
+  },
+  explanationLine: { fontSize: 11, fontWeight: '500', color: t.textMuted, lineHeight: 17 },
+
+  // ── Payments tab — score teaser card ─────────────────────────────────────────
+  teaserCard: {
+    backgroundColor: t.isDark ? '#040F04' : '#F0FFF4',
+    borderRadius: 14, padding: 14, borderWidth: 1,
+    borderColor: t.isDark ? '#0D3A15' : '#BBF7D0',
+    marginBottom: 4,
+  },
+  teaserTitle: {
+    fontSize: 11, fontWeight: '700', color: t.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8,
+  },
+  teaserScoreRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: 8 },
+  teaserScoreFrom: { fontSize: 24, fontWeight: '900', color: t.textMuted },
+  teaserScoreArrow: { fontSize: 18, fontWeight: '700', color: t.textMuted },
+  teaserScoreTo: { fontSize: 24, fontWeight: '900', color: t.positive },
+  teaserScoreDelta: { fontSize: 14, fontWeight: '700', color: t.positive, alignSelf: 'flex-end', paddingBottom: 2 },
+  teaserLink: {
+    fontSize: 13, fontWeight: '700',
+    color: t.isDark ? t.brandBright : t.brand,
+    textDecorationLine: 'underline',
+  },
+
+  // ── Top summary — details link ────────────────────────────────────────────────
+  topDetailsLink: { alignSelf: 'flex-start', marginTop: 6 },
+  topDetailsLinkText: {
+    fontSize: 12, fontWeight: '700',
+    color: t.isDark ? t.brandBright : t.brand,
+  },
+
+  // ── Details bottom sheet ──────────────────────────────────────────────────────
+  sheetOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end',
+  },
+  sheetCard: {
+    backgroundColor: t.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingTop: 12, paddingHorizontal: 20, paddingBottom: 36,
+    borderWidth: 1, borderColor: t.border, borderBottomWidth: 0,
+  },
+  sheetHandle: {
+    alignSelf: 'center', width: 36, height: 4,
+    borderRadius: 999, backgroundColor: t.isDark ? '#333' : '#D1D5DB',
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    fontSize: 16, fontWeight: '800', color: t.textPrimary, marginBottom: 16,
+  },
+  sheetRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.divider,
+  },
+  sheetLabel: { fontSize: 14, fontWeight: '600', color: t.textSecondary },
+  sheetValue: { fontSize: 14, fontWeight: '700', color: t.textPrimary },
+  sheetDivider: { height: 12 },
+  sheetActionRow: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.divider },
+  sheetActionText: {
+    fontSize: 14, fontWeight: '700',
+    color: t.isDark ? t.brandBright : t.brand,
+  },
+  sheetCloseRow: { paddingTop: 16, alignItems: 'center' },
+  sheetCloseText: { fontSize: 14, fontWeight: '700', color: t.textMuted },
+
+  // ── Payments tab — history disclosure row ─────────────────────────────────────
+  historyDisclosure: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.divider,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.divider,
+    marginBottom: 8,
+  },
+  historyDisclosureText: { fontSize: 14, fontWeight: '700', color: t.textSecondary },
+  historyDisclosureChevron: { fontSize: 14, fontWeight: '700', color: t.textMuted },
+
+  // ── Payments teaser — Visible Trust viz ──────────────────────────────────────
+  teaserVizLabel: { fontSize: 11, fontWeight: '700', color: t.textMuted, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
 });
