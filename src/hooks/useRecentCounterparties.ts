@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import { getPublicIouScoresV22 } from "../services/iouScoreV22";
 
 export type ProfileLite = {
   id: string;
   iou_hash?: string | null;
   public_name: string | null;
   avatar_url?: string | null;
-  iou_score?: number | null;
+  public_score?: number | null;
 };
 
 export function useRecentCounterparties(): {
@@ -49,10 +50,12 @@ export function useRecentCounterparties(): {
 
         const { data: profs } = await supabase
           .from("profile_directory")
-          .select("id, iou_hash, public_name, avatar_url, iou_score")
+          .select("id, iou_hash, public_name, avatar_url")
           .in("id", ids);
 
         if (!active) return;
+
+        const scoreMap = await getPublicIouScoresV22(ids);
 
         const map = new Map((profs ?? []).map((p: any) => [p.id, p]));
         const safeRecent: ProfileLite[] = ids
@@ -63,7 +66,7 @@ export function useRecentCounterparties(): {
             iou_hash: p.iou_hash ?? null,
             public_name: p.public_name ?? null,
             avatar_url: p.avatar_url ?? null,
-            iou_score: p.iou_score ?? null,
+            public_score: scoreMap.get(p.id)?.public_score ?? null,
           }));
 
         if (active) setRecent(safeRecent);

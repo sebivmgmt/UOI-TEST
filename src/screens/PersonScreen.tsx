@@ -10,6 +10,12 @@ import {
   Alert,
 } from "react-native";
 import { supabase } from "../supabase";
+import {
+  getPublicIouScoreV22,
+  tierColor,
+  formatTierLabel,
+  type OfficialScoreV22,
+} from "../services/iouScoreV22";
 
 const GREEN = "#77B777";
 const GREEN_DARK = "#5F9F5F";
@@ -22,8 +28,6 @@ type ProfileRow = {
   iou_hash: string | null;
   public_name: string | null;
   avatar_url: string | null;
-  iou_score?: number | null;
-  active_exposure_points?: number | null;
   strike_count?: number | null;
 };
 
@@ -49,6 +53,7 @@ export default function PersonScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [person, setPerson] = useState<ProfileRow | null>(null);
+  const [officialScore, setOfficialScore] = useState<OfficialScoreV22 | null>(null);
   const [loans, setLoans] = useState<LoanLite[]>([]);
 
   const load = useCallback(async () => {
@@ -65,15 +70,14 @@ export default function PersonScreen({ route, navigation }: any) {
 
       const { data: profileData, error: profileError } = await supabase
         .from("profile_directory")
-        .select(
-          "id, iou_hash, public_name, avatar_url, iou_score, active_exposure_points, strike_count"
-        )
+        .select("id, iou_hash, public_name, avatar_url, strike_count")
         .eq("id", personId)
         .single();
 
       if (profileError) throw profileError;
 
       setPerson((profileData as ProfileRow) ?? null);
+      setOfficialScore(await getPublicIouScoreV22(personId));
 
       if (me?.id) {
         const { data: loanData, error: loanError } = await supabase
@@ -116,24 +120,17 @@ export default function PersonScreen({ route, navigation }: any) {
     return person?.public_name || "Unnamed person";
   }, [person]);
 
-  const scoreValue = useMemo(() => {
-    if (typeof person?.iou_score === "number") {
-      return Math.max(0, Math.round(person.iou_score));
-    }
-    return null;
-  }, [person]);
-
-  const exposureValue = useMemo(() => {
-    if (typeof person?.active_exposure_points === "number") {
-      return Math.max(0, Math.round(person.active_exposure_points));
-    }
-    return 0;
-  }, [person]);
-
-  const visibleTrust = useMemo(() => {
-    if (scoreValue === null) return null;
-    return Math.max(0, scoreValue - exposureValue);
-  }, [scoreValue, exposureValue]);
+  const scoreValue = officialScore?.public_score ?? null;
+  const visibleTrust = officialScore?.visible_trust ?? null;
+  const scoreLabel = formatTierLabel(officialScore?.trust_tier);
+  const scoreColor = tierColor(officialScore?.trust_tier, {
+    strong: GREEN_DARK,
+    rising: GREEN,
+    starter: BLUE,
+    watch: "#B7791F",
+    muted: "#111",
+    critical: RED,
+  });
 
   const strikeCount = useMemo(() => {
     if (typeof person?.strike_count === "number") {
@@ -141,25 +138,6 @@ export default function PersonScreen({ route, navigation }: any) {
     }
     return 0;
   }, [person]);
-
-  const scoreLabel = useMemo(() => {
-    if (scoreValue === null) return "Not live yet";
-    if (scoreValue >= 1400) return "Lending";
-    if (scoreValue >= 1000) return "Strong";
-    if (scoreValue >= 800) return "Rising";
-    if (scoreValue >= 700) return "Starter";
-    if (scoreValue >= 500) return "Watch";
-    return "Critical";
-  }, [scoreValue]);
-
-  const scoreColor = useMemo(() => {
-    if (scoreValue === null) return "#111";
-    if (scoreValue >= 1000) return GREEN_DARK;
-    if (scoreValue >= 800) return GREEN;
-    if (scoreValue >= 700) return BLUE;
-    if (scoreValue >= 500) return "#B7791F";
-    return RED;
-  }, [scoreValue]);
 
   const openLoan = (loanId: string) => {
     navigation.navigate("LoanDetail", { iouId: loanId });

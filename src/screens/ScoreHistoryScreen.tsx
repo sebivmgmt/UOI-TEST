@@ -10,6 +10,12 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../supabase";
+import {
+  getMyOfficialIouScoreV22,
+  tierColor,
+  formatTierLabel,
+  type MyScoreV22,
+} from "../services/iouScoreV22";
 
 const GREEN = "#77B777";
 const GREEN_DARK = "#5F9F5F";
@@ -19,9 +25,6 @@ const BG = "#F5F7F9";
 
 type ProfileRow = {
   id: string;
-  full_name: string | null;
-  iou_score: number | null;
-  active_exposure_points: number | null;
   strike_count?: number | null;
   score_last_updated_at?: string | null;
 };
@@ -40,6 +43,7 @@ export default function ScoreHistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [myScore, setMyScore] = useState<MyScoreV22 | null>(null);
   const [events, setEvents] = useState<ScoreEventRow[]>([]);
 
   const load = useCallback(async () => {
@@ -53,45 +57,25 @@ export default function ScoreHistoryScreen() {
       return;
     }
 
-    let profileData: any = null;
-
-    const profileSelects = [
-      "id, full_name, iou_score, active_exposure_points, strike_count, score_last_updated_at",
-      "id, full_name, iou_score, active_exposure_points, score_last_updated_at",
-      "id, full_name, iou_score, active_exposure_points, strike_count",
-      "id, full_name, iou_score, active_exposure_points",
-    ];
-
-    for (const sel of profileSelects) {
-      const { data, error } = await supabase
+    const [scoreResult, profileResult] = await Promise.all([
+      getMyOfficialIouScoreV22(),
+      supabase
         .from("profiles")
-        .select(sel)
+        .select("id, strike_count, score_last_updated_at")
         .eq("id", me.id)
-        .single();
+        .single(),
+    ]);
 
-      if (!error && data) {
-        profileData = data;
-        break;
-      }
-    }
+    setMyScore(scoreResult);
 
-    if (profileData) {
+    if (profileResult.data) {
       setProfile({
-        id: profileData.id,
-        full_name: profileData.full_name ?? null,
-        iou_score:
-          typeof profileData.iou_score === "number"
-            ? profileData.iou_score
-            : null,
-        active_exposure_points:
-          typeof profileData.active_exposure_points === "number"
-            ? profileData.active_exposure_points
-            : 0,
+        id: profileResult.data.id,
         strike_count:
-          typeof profileData.strike_count === "number"
-            ? profileData.strike_count
+          typeof (profileResult.data as any).strike_count === "number"
+            ? (profileResult.data as any).strike_count
             : 0,
-        score_last_updated_at: profileData.score_last_updated_at ?? null,
+        score_last_updated_at: (profileResult.data as any).score_last_updated_at ?? null,
       });
     } else {
       setProfile(null);
@@ -209,24 +193,18 @@ export default function ScoreHistoryScreen() {
     }
   };
 
-  const scoreValue = useMemo(() => {
-    if (typeof profile?.iou_score === "number") {
-      return Math.max(0, Math.round(profile.iou_score));
-    }
-    return null;
-  }, [profile]);
-
-  const exposureValue = useMemo(() => {
-    if (typeof profile?.active_exposure_points === "number") {
-      return Math.max(0, Math.round(profile.active_exposure_points));
-    }
-    return 0;
-  }, [profile]);
-
-  const visibleTrust = useMemo(() => {
-    if (scoreValue === null) return null;
-    return Math.max(0, scoreValue - exposureValue);
-  }, [scoreValue, exposureValue]);
+  const scoreValue = myScore?.shadow_score ?? null;
+  const exposureValue = myScore?.active_exposure_points ?? 0;
+  const visibleTrust = myScore?.visible_trust ?? null;
+  const scoreLabel = formatTierLabel(myScore?.trust_tier);
+  const scoreColor = tierColor(myScore?.trust_tier, {
+    strong: GREEN_DARK,
+    rising: GREEN,
+    starter: BLUE,
+    watch: "#B7791F",
+    muted: "#111",
+    critical: RED,
+  });
 
   const strikeCount = useMemo(() => {
     if (typeof profile?.strike_count === "number") {
@@ -234,25 +212,6 @@ export default function ScoreHistoryScreen() {
     }
     return 0;
   }, [profile]);
-
-  const scoreLabel = useMemo(() => {
-    if (scoreValue === null) return "Not live yet";
-    if (scoreValue >= 1400) return "Lending";
-    if (scoreValue >= 1000) return "Strong";
-    if (scoreValue >= 800) return "Rising";
-    if (scoreValue >= 700) return "Starter";
-    if (scoreValue >= 500) return "Watch";
-    return "Critical";
-  }, [scoreValue]);
-
-  const scoreColor = useMemo(() => {
-    if (scoreValue === null) return "#111";
-    if (scoreValue >= 1000) return GREEN_DARK;
-    if (scoreValue >= 800) return GREEN;
-    if (scoreValue >= 700) return BLUE;
-    if (scoreValue >= 500) return "#B7791F";
-    return RED;
-  }, [scoreValue]);
 
   const scoreUpdatedLabel = useMemo(() => {
     if (!profile?.score_last_updated_at) return null;
@@ -343,7 +302,7 @@ export default function ScoreHistoryScreen() {
 
         <Text style={s.scoreHeroHint}>
           {scoreValue === null
-            ? "Waiting for live score fields."
+            ? "No score yet."
             : "Your base IOU trust score before temporary exposure is subtracted."}
         </Text>
 

@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { supabase } from "../supabase";
 import { useAppTheme, AppTheme } from "../theme";
+import { getMyOfficialIouScoreV22, tierColor, formatTierLabel } from "../services/iouScoreV22";
 
 const GREEN = "#77B777";
 const GREEN_DARK = "#5F9F5F";
@@ -22,18 +23,6 @@ const RED = "#D9534F";
 const BLUE = "#3B82F6";
 const AMBER = "#B7791F";
 const PURPLE = "#7C3AED";
-
-type PublicProfileRow = {
-  id: string;
-  iou_hash: string | null;
-  display_name: string | null;
-  name: string | null;
-  iou_score: number | null;
-  active_exposure_points: number | null;
-  score_cap: number | null;
-  lifetime_score_cap: number | null;
-  strike_count: number | null;
-};
 
 type ShadowScoreRow = {
   model_version: string;
@@ -65,25 +54,6 @@ const PILLARS = [
   { n: "6", title: "Fairness & Conduct", body: "How borrowers and lenders behave, including fair terms, extensions, disputes, and confirmation behavior." },
   { n: "7", title: "Trust Intelligence", body: "How IOU learns from outcomes, explains trust, tracks model versions, and keeps reports auditable." },
 ];
-
-function scoreLabel(v: number | null): string {
-  if (v === null) return "Not live yet";
-  if (v >= 1400) return "Lending";
-  if (v >= 1000) return "Strong";
-  if (v >= 800) return "Rising";
-  if (v >= 700) return "Starter";
-  if (v >= 500) return "Watch";
-  return "Critical";
-}
-
-function scoreColor(v: number | null): string {
-  if (v === null) return "#9CA3AF";
-  if (v >= 1000) return GREEN_DARK;
-  if (v >= 800) return GREEN;
-  if (v >= 700) return BLUE;
-  if (v >= 500) return AMBER;
-  return RED;
-}
 
 function EntryCard({
   title,
@@ -118,7 +88,6 @@ export default function TrustHomeScreen({ navigation }: any) {
   const s = useMemo(() => makeS(theme), [theme]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [profile, setProfile] = useState<PublicProfileRow | null>(null);
   const [shadowData, setShadowData] = useState<ShadowScoreRow | null>(null);
   const [shadowLoading, setShadowLoading] = useState(true);
   const [shadowError, setShadowError] = useState<string | null>(null);
@@ -129,23 +98,12 @@ export default function TrustHomeScreen({ navigation }: any) {
       const me = (await supabase.auth.getUser()).data.user;
       if (!me?.id) return;
 
-      const [profileResult, shadowResult] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id, iou_hash, display_name, name, iou_score, active_exposure_points, score_cap, lifetime_score_cap, strike_count")
-          .eq("id", me.id)
-          .single(),
-        supabase.rpc("get_my_current_trust_score"),
-      ]);
-
-      if (profileResult.data) setProfile(profileResult.data as PublicProfileRow);
-
-      if (shadowResult.error) {
-        setShadowError(shadowResult.error.message ?? "Failed to load v2.1 score");
+      const result = await getMyOfficialIouScoreV22();
+      if (result === null) {
+        setShadowError("Score unavailable");
         setShadowData(null);
       } else {
-        const rows = shadowResult.data as ShadowScoreRow[] | null;
-        setShadowData(rows?.[0] ?? null);
+        setShadowData(result as unknown as ShadowScoreRow);
         setShadowError(null);
       }
     } finally {
@@ -166,23 +124,18 @@ export default function TrustHomeScreen({ navigation }: any) {
     void load();
   }, [load]);
 
-  const score = useMemo(() => {
-    if (typeof profile?.iou_score !== "number") return null;
-    return Math.max(0, Math.round(profile.iou_score));
-  }, [profile]);
-
-  const exposure = useMemo(() => {
-    if (typeof profile?.active_exposure_points !== "number") return 0;
-    return Math.max(0, Math.round(profile.active_exposure_points));
-  }, [profile]);
-
-  const visibleTrust = useMemo(() => {
-    if (score === null) return null;
-    return Math.max(0, score - exposure);
-  }, [score, exposure]);
-
-  const label = scoreLabel(score);
-  const color = scoreColor(score);
+  const score = shadowData?.shadow_score ?? null;
+  const exposure = shadowData?.active_exposure_points ?? 0;
+  const visibleTrust = shadowData?.visible_trust ?? null;
+  const label = formatTierLabel(shadowData?.trust_tier);
+  const color = tierColor(shadowData?.trust_tier, {
+    strong: GREEN_DARK,
+    rising: GREEN,
+    starter: BLUE,
+    watch: AMBER,
+    muted: "#9CA3AF",
+    critical: RED,
+  });
 
   if (loading) {
     return <View style={[s.center, { backgroundColor: theme.background }]}><ActivityIndicator color={GREEN} /></View>;
@@ -215,7 +168,7 @@ export default function TrustHomeScreen({ navigation }: any) {
         </Text>
 
         <Text style={s.scoreHint}>
-          {score === null ? "Waiting for live score fields." : "Your base IOU trust score."}
+          {score === null ? "No score yet." : "Your base IOU trust score."}
         </Text>
 
         <View style={s.metricsRow}>

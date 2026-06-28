@@ -207,7 +207,7 @@ export default function NewLoan({ route, navigation }: any) {
     if (otherPersonId) {
       const { data: prof } = await supabase
         .from("profile_directory")
-        .select("id, iou_hash, public_name, avatar_url, iou_score")
+        .select("id, iou_hash, public_name, avatar_url")
         .eq("id", otherPersonId)
         .maybeSingle();
 
@@ -218,7 +218,6 @@ export default function NewLoan({ route, navigation }: any) {
           iou_hash: p.iou_hash ?? null,
           public_name: p.public_name ?? null,
           avatar_url: p.avatar_url ?? null,
-          iou_score: p.iou_score ?? null,
         });
       }
     }
@@ -297,7 +296,7 @@ export default function NewLoan({ route, navigation }: any) {
           iou_hash: r.iou_hash ?? null,
           public_name: (r.display_name || r.full_name || null) as string | null,
           avatar_url: r.avatar_url ?? null,
-          iou_score: typeof r.iou_score === "number" ? r.iou_score : null,
+          public_score: typeof r.public_score === "number" ? r.public_score : null,
         } as ProfileLite))
         .filter((p) => p.id !== userId);
 
@@ -932,9 +931,9 @@ export default function NewLoan({ route, navigation }: any) {
                         <Text style={{ color: "#666" }}>
                           {item.iou_hash || item.id}
                         </Text>
-                        {typeof item.iou_score === "number" && (
+                        {typeof item.public_score === "number" && (
                           <Text style={s.scoreMiniText}>
-                            IOU Score {Math.round(item.iou_score)}
+                            IOU Score {Math.round(item.public_score)}
                           </Text>
                         )}
                         {resultMatchesMe && (
