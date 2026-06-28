@@ -20,6 +20,10 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
 import { supabase } from '../supabase';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
+import {
+  getPublicIouScoreV22,
+  formatTierLabel,
+} from '../services/iouScoreV22';
 
 // ---------------------------------------------
 // TYPES
@@ -61,8 +65,8 @@ type PaymentRow = {
 };
 
 type BorrowerProfile = {
-  iou_score?: number | null;
-  active_exposure_points?: number | null;
+  public_score?: number | null;
+  trust_tier?: string | null;
   public_name?: string | null;
 } | null;
 
@@ -741,11 +745,14 @@ export default function LoanDetail({ route, navigation }: any) {
       return;
     }
 
-    const { data: profileData, error: profileError } = await supabase
-      .from('profile_directory')
-      .select('iou_score, active_exposure_points, public_name')
-      .eq('id', nextIou.borrower_id)
-      .single();
+    const [{ data: profileData, error: profileError }, officialScore] = await Promise.all([
+      supabase
+        .from('profile_directory')
+        .select('public_name')
+        .eq('id', nextIou.borrower_id)
+        .single(),
+      getPublicIouScoreV22(nextIou.borrower_id),
+    ]);
 
     if (profileError || !profileData) {
       setBorrowerProfile(null);
@@ -753,12 +760,8 @@ export default function LoanDetail({ route, navigation }: any) {
     }
 
     setBorrowerProfile({
-      iou_score:
-        typeof profileData.iou_score === 'number' ? profileData.iou_score : null,
-      active_exposure_points:
-        typeof profileData.active_exposure_points === 'number'
-          ? profileData.active_exposure_points
-          : null,
+      public_score: officialScore?.public_score ?? null,
+      trust_tier: officialScore?.trust_tier ?? null,
       public_name: (profileData as any).public_name ?? null,
     });
   }, [iouId]);
@@ -1099,11 +1102,7 @@ export default function LoanDetail({ route, navigation }: any) {
   }, []);
 
   const borrowerTrustLabel = useMemo(() => {
-    if (typeof borrowerProfile?.iou_score !== 'number') return 'No score yet';
-    if (borrowerProfile.iou_score >= 1000) return 'Strong';
-    if (borrowerProfile.iou_score >= 850) return 'Rising';
-    if (borrowerProfile.iou_score >= 700) return 'Starter';
-    return 'Watch';
+    return formatTierLabel(borrowerProfile?.trust_tier);
   }, [borrowerProfile]);
 
   const repaymentStreakText = useMemo(() => {
@@ -2191,10 +2190,10 @@ export default function LoanDetail({ route, navigation }: any) {
               </View>
               <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
               <Text style={s.borrowerScoreLine}>
-                {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
+                {typeof borrowerProfile.public_score === 'number' ? borrowerProfile.public_score : '—'}
                 {'  '}
                 <Text style={s.borrowerScoreMeta}>
-                  {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
+                  {typeof borrowerProfile.public_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
                 </Text>
               </Text>
             </TouchableOpacity>
@@ -2652,10 +2651,10 @@ export default function LoanDetail({ route, navigation }: any) {
             </View>
             <Text style={s.borrowerNameText}>{borrowerProfile.public_name || 'Borrower'}</Text>
             <Text style={s.borrowerScoreLine}>
-              {typeof borrowerProfile.iou_score === 'number' ? borrowerProfile.iou_score : '—'}
+              {typeof borrowerProfile.public_score === 'number' ? borrowerProfile.public_score : '—'}
               {'  '}
               <Text style={s.borrowerScoreMeta}>
-                {typeof borrowerProfile.iou_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
+                {typeof borrowerProfile.public_score === 'number' ? `· ${borrowerTrustLabel}` : ''}
               </Text>
             </Text>
           </TouchableOpacity>

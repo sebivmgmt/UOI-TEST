@@ -17,6 +17,12 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../supabase";
+import {
+  getPublicIouScoreV22,
+  tierColor,
+  formatTierLabel,
+  type OfficialScoreV22,
+} from "../services/iouScoreV22";
 
 type Frequency = "weekly" | "biweekly" | "monthly";
 
@@ -41,11 +47,7 @@ type ProfileLite = {
   public_name: string | null;
 };
 
-type BorrowerTrust = {
-  iou_score?: number | null;
-  active_exposure_points?: number | null;
-  strike_count?: number | null;
-};
+type BorrowerTrust = OfficialScoreV22;
 
 type PaymentPreviewRow = {
   id: string;
@@ -259,12 +261,7 @@ export default function PreviewSign({ route, navigation }: any) {
       setCounterpartyAchStatus(null);
 
       if (row.borrower_id) {
-        const { data: trustData, error: trustError } = await supabase
-          .from("profile_directory")
-          .select("iou_score, active_exposure_points, strike_count")
-          .eq("id", row.borrower_id)
-          .single();
-        setBorrowerTrust(trustError ? null : (trustData ?? null));
+        setBorrowerTrust(await getPublicIouScoreV22(row.borrower_id));
       } else {
         setBorrowerTrust(null);
       }
@@ -377,23 +374,16 @@ export default function PreviewSign({ route, navigation }: any) {
             ? `Waiting for ${counterpartyPublicName} to finish bank setup before this IOU can be activated.`
             : "Waiting for the other participant to finish bank setup before this IOU can be activated.";
 
-  const borrowerScore =
-    typeof borrowerTrust?.iou_score === "number" ? borrowerTrust.iou_score : null;
-
-  const borrowerTrustLabel =
-    borrowerScore === null
-      ? "No score yet"
-      : borrowerScore >= 1000 ? "Strong"
-      : borrowerScore >= 850 ? "Rising"
-      : borrowerScore >= 700 ? "Starter"
-      : "Watch";
-
-  const borrowerTrustColor =
-    borrowerScore === null ? "#111"
-      : borrowerScore >= 1000 ? GREEN
-      : borrowerScore >= 850 ? BLUE
-      : borrowerScore >= 700 ? "#B7791F"
-      : RED;
+  const borrowerScore = borrowerTrust?.public_score ?? null;
+  const borrowerTrustLabel = formatTierLabel(borrowerTrust?.trust_tier);
+  const borrowerTrustColor = tierColor(borrowerTrust?.trust_tier, {
+    strong: GREEN_DARK,
+    rising: GREEN,
+    starter: BLUE,
+    watch: "#B7791F",
+    muted: "#111",
+    critical: RED,
+  });
 
   const totalScheduled = useMemo(
     () => payments.reduce((sum, row) => sum + row.amount_cents, 0),

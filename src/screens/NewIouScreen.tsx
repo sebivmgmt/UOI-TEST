@@ -200,7 +200,7 @@ export default function NewIouScreen({ navigation }: any) {
           iou_hash: r.iou_hash ?? null,
           public_name: (r.display_name || r.full_name || null) as string | null,
           avatar_url: r.avatar_url ?? null,
-          iou_score: typeof r.iou_score === "number" ? r.iou_score : null,
+          public_score: typeof r.public_score === "number" ? r.public_score : null,
         } as ProfileLite))
         .filter((p) => p.id !== userId);
       setResults(safeResults);
@@ -431,9 +431,9 @@ export default function NewIouScreen({ navigation }: any) {
               <Text style={s.selectedSub}>
                 {counterparty.iou_hash || counterparty.id}
               </Text>
-              {typeof counterparty.iou_score === "number" && (
+              {typeof counterparty.public_score === "number" && (
                 <Text style={s.selectedScore}>
-                  IOU Score {Math.round(counterparty.iou_score)}
+                  IOU Score {Math.round(counterparty.public_score)}
                 </Text>
               )}
               {isSelfCounterparty && (
@@ -496,9 +496,9 @@ export default function NewIouScreen({ navigation }: any) {
                       <Text style={s.resultSub}>
                         {item.iou_hash || item.id}
                       </Text>
-                      {typeof item.iou_score === "number" && (
+                      {typeof item.public_score === "number" && (
                         <Text style={s.resultScore}>
-                          IOU Score {Math.round(item.iou_score)}
+                          IOU Score {Math.round(item.public_score)}
                         </Text>
                       )}
                     </View>

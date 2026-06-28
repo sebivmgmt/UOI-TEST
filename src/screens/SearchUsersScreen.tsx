@@ -14,19 +14,20 @@ import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../supabase";
 import SebivAvatar from "../components/SebivAvatar";
 import { useAppTheme, AppTheme } from "../theme";
+import { getPublicIouScoresV22 } from "../services/iouScoreV22";
 
 type UserResult = {
   id: string;
   iou_hash?: string | null;
   public_name: string | null;
-  iou_score?: number | null;
+  public_score?: number | null;
   avatar_url?: string | null;
 };
 
 type RecentContact = {
   id: string;
   public_name: string | null;
-  iou_score?: number | null;
+  public_score?: number | null;
   avatar_url?: string | null;
   lastIouDate: string;
 };
@@ -83,13 +84,15 @@ export default function SearchUsersScreen({ navigation }: any) {
 
       const { data: profileData } = await supabase
         .from("profile_directory")
-        .select("id, iou_hash, public_name, avatar_url, iou_score")
+        .select("id, iou_hash, public_name, avatar_url")
         .in("id", ids);
+
+      const scoreMap = await getPublicIouScoresV22(ids);
 
       const contacts: RecentContact[] = (profileData ?? []).map((p: any) => ({
         id: p.id,
         public_name: p.public_name ?? null,
-        iou_score: p.iou_score ?? null,
+        public_score: scoreMap.get(p.id)?.public_score ?? null,
         avatar_url: p.avatar_url ?? null,
         lastIouDate: counterpartyMap.get(p.id) ?? "",
       }));
@@ -124,7 +127,7 @@ export default function SearchUsersScreen({ navigation }: any) {
         id: r.id,
         iou_hash: r.iou_hash ?? null,
         public_name: (r.display_name || r.full_name || null) as string | null,
-        iou_score: typeof r.iou_score === "number" ? r.iou_score : null,
+        public_score: typeof r.public_score === "number" ? r.public_score : null,
         avatar_url: r.avatar_url ?? null,
       }));
       setResults(mapped);
@@ -251,7 +254,7 @@ export default function SearchUsersScreen({ navigation }: any) {
           }
           if (item.kind === "search-result") {
             const r = item.item;
-            return renderContactCard(r.id, r.public_name, r.iou_score, "New IOU", r.avatar_url);
+            return renderContactCard(r.id, r.public_name, r.public_score, "New IOU", r.avatar_url);
           }
           if (item.kind === "search-empty") {
             return (
@@ -266,7 +269,7 @@ export default function SearchUsersScreen({ navigation }: any) {
           }
           if (item.kind === "recent-item") {
             const r = item.item;
-            return renderContactCard(r.id, r.public_name, r.iou_score, "New IOU", r.avatar_url);
+            return renderContactCard(r.id, r.public_name, r.public_score, "New IOU", r.avatar_url);
           }
           if (item.kind === "recent-empty") {
             return (

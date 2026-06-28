@@ -26,12 +26,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 //   - Caller's own profile is excluded from results.
 //
 // Safe response shape (per result):
-//   id           string   — UUID
-//   display_name string   — Display name (display_name ?? full_name)
-//   full_name    string   — Full legal-format name (may be null)
-//   iou_hash     string   — @handle for deep linking (may be null)
-//   avatar_url   string   — Profile photo (may be null)
-//   iou_score    number   — Aggregate trust score (may be null)
+//   id            string  — UUID
+//   display_name  string  — Display name (display_name ?? full_name)
+//   full_name     string  — Full legal-format name (may be null)
+//   iou_hash      string  — @handle for deep linking (may be null)
+//   avatar_url    string  — Profile photo (may be null)
+//   public_score  number  — v2.2 official trust score (may be null)
+//   visible_trust number  — Score minus exposure (may be null)
+//   trust_tier    string  — Trust tier label (may be null)
 // ---------------------------------------------------------------------------
 
 const corsHeaders = {
@@ -150,7 +152,7 @@ serve(async (req) => {
       .from("profiles")
       // Only safe, non-PII display fields are selected.
       // Sensitive columns are deliberately excluded even if they matched.
-      .select("id, full_name, display_name, iou_hash, avatar_url, iou_score")
+      .select("id, full_name, display_name, iou_hash, avatar_url")
       .or(filterParts.join(","))
       .neq("id", user.id)
       .limit(RESULT_LIMIT);
@@ -159,17 +161,50 @@ serve(async (req) => {
       throw new Error(`Search failed: ${searchError.message}`);
     }
 
-    // ── 5. Shape safe response ────────────────────────────────────────────
+    // ── 5. Batch-fetch v2.2 official scores ──────────────────────────────
+    stage = "scores";
+
+    const resultIds = (data ?? []).map((row: any) => row.id as string);
+    const scoreMap = new Map<string, { public_score: number | null; visible_trust: number | null; trust_tier: string | null }>();
+    if (resultIds.length > 0) {
+      const { data: scoreData, error: scoreError } = await supabase.rpc("get_public_iou_scores_v22", {
+        p_user_ids: resultIds,
+      });
+      if (scoreError) {
+        // Score RPC failed — results still returned with score fields null.
+        // No legacy score, no fabricated value, no private field exposure.
+        console.error("[search-counterparty] score RPC failed", {
+          message: scoreError.message ?? null,
+          code: (scoreError as any).code ?? null,
+        });
+      }
+      for (const s of (scoreData ?? []) as any[]) {
+        if (s.user_id) {
+          scoreMap.set(s.user_id, {
+            public_score: typeof s.public_score === "number" ? s.public_score : null,
+            visible_trust: typeof s.visible_trust === "number" ? s.visible_trust : null,
+            trust_tier: typeof s.trust_tier === "string" ? s.trust_tier : null,
+          });
+        }
+      }
+    }
+
+    // ── 6. Shape safe response ────────────────────────────────────────────
     stage = "shape";
 
-    const results = (data ?? []).map((row: any) => ({
-      id: row.id as string,
-      display_name: (row.display_name ?? row.full_name ?? null) as string | null,
-      full_name: (row.full_name ?? null) as string | null,
-      iou_hash: (row.iou_hash ?? null) as string | null,
-      avatar_url: (row.avatar_url ?? null) as string | null,
-      iou_score: typeof row.iou_score === "number" ? row.iou_score : null,
-    }));
+    const results = (data ?? []).map((row: any) => {
+      const score = scoreMap.get(row.id as string);
+      return {
+        id: row.id as string,
+        display_name: (row.display_name ?? row.full_name ?? null) as string | null,
+        full_name: (row.full_name ?? null) as string | null,
+        iou_hash: (row.iou_hash ?? null) as string | null,
+        avatar_url: (row.avatar_url ?? null) as string | null,
+        public_score: score?.public_score ?? null,
+        visible_trust: score?.visible_trust ?? null,
+        trust_tier: score?.trust_tier ?? null,
+      };
+    });
 
     stage = "success";
 

@@ -8,7 +8,7 @@ export type ProfileLite = {
   iou_hash?: string | null;
   public_name: string | null;
   avatar_url?: string | null;
-  iou_score?: number | null;
+  public_score?: number | null;
 };
 
 type Props = {
@@ -47,7 +47,7 @@ export default function BorrowerAutocomplete({
           iou_hash: r.iou_hash ?? null,
           public_name: (r.display_name || r.full_name || null) as string | null,
           avatar_url: r.avatar_url ?? null,
-          iou_score: typeof r.iou_score === "number" ? r.iou_score : null,
+          public_score: typeof r.public_score === "number" ? r.public_score : null,
         }));
         setResults(mapped);
       }
