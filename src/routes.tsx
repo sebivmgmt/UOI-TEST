@@ -74,6 +74,8 @@ export type RootStackParamList = {
         loan_id?: string;
         id?: string;
         direction?: "in" | "out";
+        initialTab?: 'overview' | 'payments' | 'score' | 'estimate';
+        focusPaymentId?: string;
       }
     | undefined;
   Receipt:
@@ -154,7 +156,7 @@ export type RootStackParamList = {
     paymentAmount?: number;
     title?: string | null;
   };
-  NewIouScreen: undefined;
+  NewIouScreen: { initialRole?: "lend" | "borrow" } | undefined;
   TrustReport: undefined;
   ViewTrustReport: { ownerUserId: string; ownerName?: string };
   TrustIntro: undefined;
@@ -396,7 +398,7 @@ function HomeStack() {
         <Stack.Screen name="SearchUsers" component={SearchUsersScreen} options={{ title: "Search Users" }} />
         <Stack.Screen name="Person" component={PersonScreen} options={{ title: "Person" }} />
         <Stack.Screen name="NewLoan" component={NewLoan} options={{ title: "New IOU" }} />
-        <Stack.Screen name="NewIouScreen" component={NewIouScreen} options={{ title: "New IOU (Guided)", headerShown: false }} />
+        <Stack.Screen name="NewIouScreen" component={NewIouScreen} options={{ title: "New IOU", headerShown: false }} />
         <Stack.Screen name="LoanDetail" component={LoanDetail} options={{ title: "Loan Detail" }} />
         <Stack.Screen name="ConfirmPayment" component={ConfirmPayment} options={{ title: "Confirm Payment" }} />
         <Stack.Screen name="AchPayment" component={AchPayment} options={{ title: "ACH Payment" }} />
@@ -494,8 +496,6 @@ function ProfileStack() {
       <Stack.Screen name="LinkBank" component={LinkBank} options={{ title: "Link Bank" }} />
       <Stack.Screen name="SelectBankAccount" component={SelectBankAccount} options={{ title: "Select Bank Account" }} />
       <Stack.Screen name="Archived" component={Archived} options={{ title: "Archived" }} />
-      {/* Dev-only entry point — NewIouScreen is hidden behind __DEV__ in Profile.tsx.
-          Registration required so navigation.navigate("NewIouScreen") works from ProfileStack. */}
       <Stack.Screen name="NewIouScreen" component={NewIouScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

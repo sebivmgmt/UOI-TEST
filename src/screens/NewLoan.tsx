@@ -94,7 +94,15 @@ export default function NewLoan({ route, navigation }: any) {
   const presetBorrowerPhoneVerified =
     route?.params?.presetBorrowerPhoneVerified as boolean | null | undefined;
 
-  const [loanSide, setLoanSide] = useState<LoanSide>("lend");
+  // Route mode is only used for new IOUs (no existingId).
+  // presetBorrowerId forces lender mode. existingId overrides via useEffect once IOU data loads.
+  const routeMode: LoanSide =
+    route?.params?.mode === 'borrow' || route?.params?.mode === 'lend'
+      ? (route.params.mode as LoanSide)
+      : 'lend';
+  const [loanSide, setLoanSide] = useState<LoanSide>(
+    presetBorrowerId ? 'lend' : existingId ? 'lend' : routeMode
+  );
 
   const [title, setTitle] = useState<string>("");
   const [amount, setAmount] = useState<string>("");

@@ -134,6 +134,7 @@ export default function IousListScreen({ navigation }: any) {
   const [rows, setRows] = useState<IouRow[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [nextPayments, setNextPayments] = useState<NextPayment[]>([]);
+  const [extensionIouIds, setExtensionIouIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string | null>>(new Set());
@@ -211,6 +212,20 @@ export default function IousListScreen({ navigation }: any) {
         }
       });
       setNextPayments(earliest);
+    }
+
+    // Fetch extension-pending IOU IDs (lender side only)
+    const lenderIouIds = live.filter((r) => r.lender_id === userId).map((r) => r.id);
+    if (lenderIouIds.length > 0) {
+      const { data: extData } = await supabase
+        .from("payments")
+        .select("iou_id")
+        .in("iou_id", lenderIouIds)
+        .eq("extension_status", "requested")
+        .is("paid_at", null);
+      setExtensionIouIds(new Set(((extData ?? []) as any[]).map((p) => p.iou_id as string)));
+    } else {
+      setExtensionIouIds(new Set());
     }
 
     setLoading(false);
@@ -509,6 +524,11 @@ export default function IousListScreen({ navigation }: any) {
                         Next {shortDate(iou.next.scheduled_at)} · {currency(iou.next.amount_cents)}
                       </Text>
                     )}
+                    {isIn && extensionIouIds.has(iou.id) && (
+                      <View style={s.extPendingPill}>
+                        <Text style={s.extPendingText}>Extension request pending</Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -742,6 +762,22 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#6B7280",
+  },
+  extPendingPill: {
+    marginTop: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#FEF3C7",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  extPendingText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#92400E",
+    letterSpacing: 0.2,
   },
 
   empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: 24 },

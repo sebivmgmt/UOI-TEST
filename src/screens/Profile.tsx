@@ -620,15 +620,6 @@ export default function Profile({ navigation }: any) {
       {__DEV__ && (
         <View style={s.devCard}>
           <Text style={s.devCardTitle}>Developer</Text>
-          <TouchableOpacity
-            style={s.devBtn}
-            onPress={() => navigation.navigate("NewIouScreen")}
-            activeOpacity={0.8}
-          >
-            <Text style={s.devBtnText}>Dev: New IOU Guided Flow</Text>
-          </TouchableOpacity>
-
-          <View style={s.devDivider} />
 
           {/* TODO: Remove this dev-only Score v2 outcome test tool before production release. */}
           <Text style={s.devSectionLabel}>Score v2 · Outcome Test</Text>

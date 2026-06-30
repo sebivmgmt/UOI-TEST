@@ -11,6 +11,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { supabase } from "../supabase";
+import { parseDateInput } from "../utils/dateUtils";
 
 const GREEN = "#77B777";
 const RED = "#ef4444";
@@ -19,6 +20,14 @@ const AMBER = "#F59E0B";
 const BG = "#F5F7F9";
 
 const currency = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+// due_date / extension date columns are plain YYYY-MM-DD strings — must parse
+// as local calendar dates, not via `new Date(string)` (UTC midnight parsing
+// can shift the displayed date back a day in negative-UTC-offset zones).
+const formatDateOnly = (iso: string): string => {
+  const d = parseDateInput(iso) ?? new Date(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
 
 type IouRow = {
   id: string;
@@ -36,16 +45,47 @@ type IouRow = {
   requested_action_by: string | null;
 };
 
-type SectionKey = "incoming" | "sent";
+type ExtensionItem = {
+  id: string; // paymentId — used as SectionList key
+  _type: 'extension';
+  iouId: string;
+  iouTitle: string | null;
+  dueDateIso: string;
+  amountCents: number;
+  requestedUntilIso: string | null;
+  borrowerName: string | null;
+};
+
+// Borrower-side: a lender's approve/deny decision on an extension request,
+// read from the existing payment_extension_events ledger. This is a durable
+// status/history item, not an unread notification — there is no read-state
+// model behind it (no dismissal, no unread count, no push delivery).
+type DecisionItem = {
+  id: string; // `decision_${request_id}` — used as SectionList key
+  _type: 'decision';
+  iouId: string;
+  iouTitle: string | null;
+  paymentId: string;
+  eventType: 'approved' | 'denied';
+  originalDueDateIso: string | null;
+  requestedUntilIso: string | null;
+  decidedAtIso: string;
+};
+
+type AnyItem = IouRow | ExtensionItem | DecisionItem;
+
+type SectionKey = "incoming" | "sent" | "ext_requests" | "ext_decisions";
 type Section = {
   key: SectionKey;
   title: string;
   subtitle: string;
-  data: IouRow[];
+  data: AnyItem[];
 };
 
 export default function Inbox({ navigation }: any) {
   const [rows, setRows] = useState<IouRow[]>([]);
+  const [extensionItems, setExtensionItems] = useState<ExtensionItem[]>([]);
+  const [decisionItems, setDecisionItems] = useState<DecisionItem[]>([]);
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,23 +100,152 @@ export default function Inbox({ navigation }: any) {
   const load = useCallback(async () => {
     if (!me) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("ious")
-      .select(
-        "id,title,principal_cents,apr_bps,term_months,frequency,status,created_at,activated_at,lender_id,borrower_id,created_by,requested_action_by"
-      )
-      .in("status", ["open", "pending_acceptance", "draft"])
-      .is("activated_at", null)
-      .or(`lender_id.eq.${me},borrower_id.eq.${me}`)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
 
-    if (error) {
-      Alert.alert("Load failed", error.message);
+    // Auxiliary queries (extension requests / decisions) must never silently
+    // collapse into an empty section on failure — track failures and surface
+    // a single combined warning instead of one alert per failed query.
+    let auxQueryFailed = false;
+    const logAuxError = (label: string, error: unknown) => {
+      auxQueryFailed = true;
+      if (__DEV__) {
+        console.error(`[Inbox] ${label} failed`, error);
+      }
+    };
+
+    // Load IOU requests, lender's open/late IOUs, and borrower's open/late IOUs in parallel.
+    // "active" is not a valid ious.status value — the canonical contract for a
+    // live (extendable) agreement is status IN ('open','late'), matching what
+    // the payment-extension backend itself permits.
+    const [iouResult, lenderIouResult, borrowerIouResult] = await Promise.all([
+      supabase
+        .from("ious")
+        .select(
+          "id,title,principal_cents,apr_bps,term_months,frequency,status,created_at,activated_at,lender_id,borrower_id,created_by,requested_action_by"
+        )
+        .in("status", ["open", "pending_acceptance", "draft"])
+        .is("activated_at", null)
+        .or(`lender_id.eq.${me},borrower_id.eq.${me}`)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("ious")
+        .select("id,title,borrower_id")
+        .eq("lender_id", me)
+        .in("status", ["open", "late"])
+        .is("deleted_at", null),
+      supabase
+        .from("ious")
+        .select("id,title")
+        .eq("borrower_id", me)
+        .in("status", ["open", "late"])
+        .is("deleted_at", null),
+    ]);
+
+    if (iouResult.error) {
+      Alert.alert("Load failed", iouResult.error.message);
       setRows([]);
     } else {
-      setRows((data ?? []) as IouRow[]);
+      setRows((iouResult.data ?? []) as IouRow[]);
     }
+
+    if (lenderIouResult.error) logAuxError("lenderIouResult", lenderIouResult.error);
+    if (borrowerIouResult.error) logAuxError("borrowerIouResult", borrowerIouResult.error);
+
+    // Build extension items from open/late lender IOUs
+    const lenderIous = lenderIouResult.error ? [] : ((lenderIouResult.data ?? []) as any[]);
+    const lenderIouIds = lenderIous.map((r: any) => r.id as string);
+    const lenderIouMap: Record<string, any> = Object.fromEntries(lenderIous.map((r: any) => [r.id, r]));
+
+    // Build decision items from open/late borrower IOUs (approved/denied extension events)
+    const borrowerIous = borrowerIouResult.error ? [] : ((borrowerIouResult.data ?? []) as any[]);
+    const borrowerIouIds = borrowerIous.map((r: any) => r.id as string);
+    const borrowerIouTitleMap: Record<string, string | null> = Object.fromEntries(
+      borrowerIous.map((r: any) => [r.id, r.title ?? null])
+    );
+
+    const [extResult, profileResult, eventsResult] = await Promise.all([
+      lenderIouIds.length > 0
+        ? supabase
+            .from("payments")
+            .select("id,iou_id,due_date,amount_cents,extension_requested_until")
+            .in("iou_id", lenderIouIds)
+            .eq("extension_status", "requested")
+            .is("paid_at", null)
+        : Promise.resolve({ data: [] as any[], error: null as any }),
+      lenderIouIds.length > 0
+        ? supabase
+            .from("profile_directory")
+            .select("id,public_name")
+            .in(
+              "id",
+              [...new Set(lenderIous.map((r: any) => r.borrower_id).filter(Boolean))]
+            )
+        : Promise.resolve({ data: [] as any[], error: null as any }),
+      borrowerIouIds.length > 0
+        ? supabase
+            .from("payment_extension_events")
+            .select("request_id,payment_id,iou_id,event_type,original_due_date,requested_until,created_at")
+            .in("iou_id", borrowerIouIds)
+            .in("event_type", ["approved", "denied"])
+            .order("created_at", { ascending: false })
+        : Promise.resolve({ data: [] as any[], error: null as any }),
+    ]);
+
+    if (extResult.error) logAuxError("extResult", extResult.error);
+    if (profileResult.error) logAuxError("profileResult", profileResult.error);
+    if (eventsResult.error) logAuxError("eventsResult", eventsResult.error);
+
+    const profileMap: Record<string, string | null> = profileResult.error
+      ? {}
+      : Object.fromEntries(
+          ((profileResult.data ?? []) as any[]).map((p: any) => [p.id, p.public_name ?? null])
+        );
+
+    const extItems: ExtensionItem[] = extResult.error
+      ? []
+      : ((extResult.data ?? []) as any[]).map((p: any) => {
+          const iou = lenderIouMap[p.iou_id];
+          return {
+            id: p.id,
+            _type: 'extension' as const,
+            iouId: p.iou_id,
+            iouTitle: iou?.title ?? null,
+            dueDateIso: p.due_date,
+            amountCents: p.amount_cents,
+            requestedUntilIso: p.extension_requested_until ?? null,
+            borrowerName: iou?.borrower_id ? (profileMap[iou.borrower_id] ?? null) : null,
+          };
+        });
+    setExtensionItems(extItems);
+
+    // De-dupe: keep only the most recent event per request_id (events are
+    // ordered by created_at desc, so the first occurrence wins).
+    const seenRequestIds = new Set<string>();
+    const decisions: DecisionItem[] = [];
+    (eventsResult.error ? [] : ((eventsResult.data ?? []) as any[])).forEach((e: any) => {
+      if (seenRequestIds.has(e.request_id)) return;
+      seenRequestIds.add(e.request_id);
+      decisions.push({
+        id: `decision_${e.request_id}`,
+        _type: 'decision' as const,
+        iouId: e.iou_id,
+        iouTitle: borrowerIouTitleMap[e.iou_id] ?? null,
+        paymentId: e.payment_id,
+        eventType: e.event_type,
+        originalDueDateIso: e.original_due_date ?? null,
+        requestedUntilIso: e.requested_until ?? null,
+        decidedAtIso: e.created_at,
+      });
+    });
+    setDecisionItems(decisions);
+
+    if (auxQueryFailed) {
+      Alert.alert(
+        "Some updates couldn't load",
+        "Extension request and decision info may be incomplete. Pull to refresh to try again."
+      );
+    }
+
     setLoading(false);
   }, [me]);
 
@@ -95,6 +264,8 @@ export default function Inbox({ navigation }: any) {
 
   // A) Incoming: other party created it, waiting on ME to act
   // B) Sent: I created it, waiting on the OTHER person
+  // C) Extension requests: lender reviewing borrower extension requests
+  // D) Extension decisions: borrower seeing a lender's approve/deny decision (history, not unread)
   const sections: Section[] = useMemo(() => {
     const incoming: IouRow[] = [];
     const sent: IouRow[] = [];
@@ -108,6 +279,15 @@ export default function Inbox({ navigation }: any) {
     });
 
     const result: Section[] = [];
+
+    if (extensionItems.length > 0) {
+      result.push({
+        key: "ext_requests",
+        title: "Extension Requests",
+        subtitle: "Borrowers requesting more time to pay",
+        data: extensionItems,
+      });
+    }
     if (incoming.length > 0) {
       result.push({
         key: "incoming",
@@ -124,8 +304,16 @@ export default function Inbox({ navigation }: any) {
         data: sent,
       });
     }
+    if (decisionItems.length > 0) {
+      result.push({
+        key: "ext_decisions",
+        title: "Extension Updates",
+        subtitle: "Recent lender decisions on your requests",
+        data: decisionItems,
+      });
+    }
     return result;
-  }, [rows, me]);
+  }, [rows, extensionItems, decisionItems, me]);
 
   const deny = (id: string) => {
     Alert.alert("Deny this request?", "The sender will be notified.", [
@@ -196,7 +384,7 @@ export default function Inbox({ navigation }: any) {
         <View style={s.empty}>
           <Text style={s.emptyTitle}>All clear</Text>
           <Text style={s.emptyText}>
-            New requests will appear here when someone creates an IOU with you.
+            New IOU requests and payment extension requests will appear here.
           </Text>
         </View>
       </View>
@@ -222,42 +410,129 @@ export default function Inbox({ navigation }: any) {
         SectionSeparatorComponent={() => <View style={{ height: 8 }} />}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         renderItem={({ item, section }) => {
+          // Extension request card (lender reviewing borrower request)
+          if ('_type' in item && (item as ExtensionItem)._type === 'extension') {
+            const ext = item as ExtensionItem;
+            return (
+              <TouchableOpacity
+                style={s.card}
+                onPress={() =>
+                  navigation.navigate("LoanDetail", {
+                    iouId: ext.iouId,
+                    initialTab: 'payments',
+                    focusPaymentId: ext.id,
+                  })
+                }
+                activeOpacity={0.8}
+              >
+                <View style={s.cardHeader}>
+                  <Text style={s.cardTitle} numberOfLines={1}>
+                    {ext.iouTitle || "IOU"}
+                  </Text>
+                  <View style={s.reviewBadge}>
+                    <Text style={s.reviewBadgeText}>REVIEW</Text>
+                  </View>
+                </View>
+                <Text style={s.amount}>{currency(ext.amountCents)}</Text>
+                <Text style={s.meta}>
+                  {"Due "}
+                  {formatDateOnly(ext.dueDateIso)}
+                  {ext.requestedUntilIso
+                    ? ` · Requesting until ${formatDateOnly(ext.requestedUntilIso)}`
+                    : ""}
+                </Text>
+                {!!ext.borrowerName && (
+                  <Text style={s.meta}>From {ext.borrowerName}</Text>
+                )}
+                <View style={s.actionPrompt}>
+                  <Text style={s.actionPromptText}>
+                    Tap to review and approve or deny this request.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          }
+
+          // Extension decision card (borrower viewing a lender's approve/deny decision)
+          if ('_type' in item && (item as DecisionItem)._type === 'decision') {
+            const dec = item as DecisionItem;
+            const approved = dec.eventType === 'approved';
+            return (
+              <TouchableOpacity
+                style={s.card}
+                onPress={() =>
+                  navigation.navigate("LoanDetail", {
+                    iouId: dec.iouId,
+                    initialTab: 'payments',
+                    focusPaymentId: dec.paymentId,
+                  })
+                }
+                activeOpacity={0.8}
+              >
+                <View style={s.cardHeader}>
+                  <Text style={s.cardTitle} numberOfLines={1}>
+                    {dec.iouTitle || "IOU"}
+                  </Text>
+                  <View style={[s.pendingBadge, approved ? s.decisionApprovedBadge : s.decisionDeniedBadge]}>
+                    <Text style={[s.pendingText, approved ? s.decisionApprovedText : s.decisionDeniedText]}>
+                      {approved ? "APPROVED" : "DENIED"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[s.amount, { fontSize: 17 }, approved ? s.decisionApprovedText : s.decisionDeniedText]}>
+                  {approved ? "Extension approved" : "Extension denied"}
+                </Text>
+                <Text style={s.meta}>
+                  {approved && dec.requestedUntilIso
+                    ? `New due date ${formatDateOnly(dec.requestedUntilIso)}`
+                    : dec.originalDueDateIso
+                      ? `Original due date ${formatDateOnly(dec.originalDueDateIso)} applies`
+                      : "Your original due date applies"}
+                </Text>
+                <Text style={s.meta}>
+                  Decided {formatDateOnly(dec.decidedAtIso)}
+                </Text>
+              </TouchableOpacity>
+            );
+          }
+
+          const iouItem = item as IouRow;
           const isIncoming = section.key === "incoming";
-          const busy = busyId === item.id;
+          const busy = busyId === iouItem.id;
           const apr =
-            typeof item.apr_bps === "number" ? item.apr_bps / 100 : 0;
+            typeof iouItem.apr_bps === "number" ? iouItem.apr_bps / 100 : 0;
 
           return (
             <View style={s.card}>
               <View style={s.cardHeader}>
                 <Text style={s.cardTitle} numberOfLines={1}>
-                  {item.title || "IOU Request"}
+                  {iouItem.title || "IOU Request"}
                 </Text>
                 {!isIncoming && (
                   <View style={[
                     s.pendingBadge,
-                    item.status === "draft" && { backgroundColor: "#FEF3C7" },
+                    iouItem.status === "draft" && { backgroundColor: "#FEF3C7" },
                   ]}>
                     <Text style={[
                       s.pendingText,
-                      item.status === "draft" && { color: AMBER },
+                      iouItem.status === "draft" && { color: AMBER },
                     ]}>
-                      {item.status === "draft" ? "AWAITING APPROVAL" : "PENDING"}
+                      {iouItem.status === "draft" ? "AWAITING APPROVAL" : "PENDING"}
                     </Text>
                   </View>
                 )}
               </View>
 
-              <Text style={s.amount}>{currency(item.principal_cents)}</Text>
+              <Text style={s.amount}>{currency(iouItem.principal_cents)}</Text>
 
               <Text style={s.meta}>
                 {apr > 0 ? `${apr}% APR · ` : ""}
-                {item.term_months ? `${item.term_months} mo` : "—"}
-                {item.frequency ? ` · ${item.frequency}` : ""}
+                {iouItem.term_months ? `${iouItem.term_months} mo` : "—"}
+                {iouItem.frequency ? ` · ${iouItem.frequency}` : ""}
               </Text>
               <Text style={s.meta}>
-                {item.created_at
-                  ? new Date(item.created_at).toLocaleDateString(undefined, {
+                {iouItem.created_at
+                  ? new Date(iouItem.created_at).toLocaleDateString(undefined, {
                       month: "short",
                       day: "numeric",
                       year: "numeric",
@@ -266,7 +541,7 @@ export default function Inbox({ navigation }: any) {
               </Text>
 
               {isIncoming ? (
-                item.status === "draft" ? (
+                iouItem.status === "draft" ? (
                   // Lender incoming: borrower proposed schedule dates, needs approval
                   <View>
                     <View style={s.actionPrompt}>
@@ -283,7 +558,7 @@ export default function Inbox({ navigation }: any) {
                       <TouchableOpacity
                         style={[s.btn, s.reviewBtn, { flex: 2 }]}
                         onPress={() =>
-                          navigation.navigate("PreviewSign", { id: item.id })
+                          navigation.navigate("PreviewSign", { id: iouItem.id })
                         }
                         disabled={busy}
                       >
@@ -291,7 +566,7 @@ export default function Inbox({ navigation }: any) {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[s.btn, s.denyBtn, { flex: 1 }]}
-                        onPress={() => deny(item.id)}
+                        onPress={() => deny(iouItem.id)}
                         disabled={busy}
                       >
                         {busy ? (
@@ -317,7 +592,7 @@ export default function Inbox({ navigation }: any) {
                       <TouchableOpacity
                         style={[s.btn, s.reviewBtn, { flex: 2 }]}
                         onPress={() =>
-                          navigation.navigate("PreviewSign", { id: item.id })
+                          navigation.navigate("PreviewSign", { id: iouItem.id })
                         }
                         disabled={busy}
                       >
@@ -325,7 +600,7 @@ export default function Inbox({ navigation }: any) {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[s.btn, s.denyBtn, { flex: 1 }]}
-                        onPress={() => deny(item.id)}
+                        onPress={() => deny(iouItem.id)}
                         disabled={busy}
                       >
                         {busy ? (
@@ -340,7 +615,7 @@ export default function Inbox({ navigation }: any) {
               ) : (
                 // Sent: can only view or cancel
                 <View>
-                  {item.status === "draft" && (
+                  {iouItem.status === "draft" && (
                     <View style={s.actionPrompt}>
                       <View style={[s.sigBadge, s.scheduleChangeBadge]}>
                         <Text style={[s.sigBadgeText, s.scheduleChangeBadgeText]}>
@@ -356,7 +631,7 @@ export default function Inbox({ navigation }: any) {
                     <TouchableOpacity
                       style={[s.btn, s.reviewBtn, { flex: 2 }]}
                       onPress={() =>
-                        navigation.navigate("PreviewSign", { id: item.id })
+                        navigation.navigate("PreviewSign", { id: iouItem.id })
                       }
                       disabled={busy}
                     >
@@ -364,7 +639,7 @@ export default function Inbox({ navigation }: any) {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[s.btn, s.cancelBtn, { flex: 1 }]}
-                      onPress={() => cancel(item.id)}
+                      onPress={() => cancel(iouItem.id)}
                       disabled={busy}
                     >
                       {busy ? (
@@ -431,6 +706,24 @@ const s = StyleSheet.create({
     color: AMBER,
     letterSpacing: 0.5,
   },
+  reviewBadge: {
+    backgroundColor: "#ECFDF5",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+  },
+  reviewBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#065F46",
+    letterSpacing: 0.5,
+  },
+  decisionApprovedBadge: { backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: "#A7F3D0" },
+  decisionDeniedBadge: { backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: "#FCA5A5" },
+  decisionApprovedText: { color: "#065F46" },
+  decisionDeniedText: { color: RED },
   amount: {
     marginTop: 8,
     fontSize: 26,

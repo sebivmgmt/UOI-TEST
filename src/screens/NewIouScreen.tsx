@@ -105,9 +105,16 @@ function parseTermMonths(termMonths: string) {
 }
 
 
-export default function NewIouScreen({ navigation }: any) {
-  const [step, setStep] = useState(0);
-  const [loanSide, setLoanSide] = useState<LoanSide | null>(null);
+export default function NewIouScreen({ route, navigation }: any) {
+  const initialRole: LoanSide | null =
+    route?.params?.initialRole === 'lend' || route?.params?.initialRole === 'borrow'
+      ? route.params.initialRole
+      : null;
+
+  // When the caller already collected the role (e.g. MoneyAction's Lend/Borrow
+  // cards), skip the Role step and start on Who. Back still returns to Role.
+  const [step, setStep] = useState(initialRole ? 1 : 0);
+  const [loanSide, setLoanSide] = useState<LoanSide | null>(initialRole);
   const [counterpartyQuery, setCounterpartyQuery] = useState("");
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");

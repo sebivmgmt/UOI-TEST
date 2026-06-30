@@ -119,10 +119,8 @@ export default function MoneyActionScreen({ navigation }: any) {
 
   const handleAction = (action: Action) => {
     if (action.disabled) return;
-    if (action.id === "lend") {
-      navigation.replace("NewLoan", { mode: "lend" });
-    } else if (action.id === "borrow") {
-      navigation.replace("NewLoan", { mode: "borrow" });
+    if (action.id === "lend" || action.id === "borrow") {
+      navigation.replace("NewIouScreen", { initialRole: action.id });
     } else if (action.id === "split") {
       navigation.replace("SplitReceipt");
     }
@@ -172,20 +170,6 @@ export default function MoneyActionScreen({ navigation }: any) {
           </TouchableOpacity>
         ))}
       </View>
-
-      {/* This is a controlled dev-only entry point for the guided New IOU flow.
-          Do not expose in production until legal documents, APR cap constant,
-          and acceptance persistence are complete.
-          __DEV__ is always false in production/release builds. */}
-      {__DEV__ && (
-        <TouchableOpacity
-          style={s.devTestBtn}
-          onPress={() => navigation.replace("NewIouScreen")}
-          activeOpacity={0.75}
-        >
-          <Text style={s.devTestBtnText}>Dev: New IOU Guided Flow</Text>
-        </TouchableOpacity>
-      )}
 
       <TouchableOpacity
         style={s.cancelBtn}

@@ -670,6 +670,18 @@ export default function LoanDetail({ route, navigation }: any) {
       ? route.params.direction
       : undefined;
 
+  const VALID_TABS = ['overview', 'payments', 'score', 'estimate'] as const;
+  const routeInitialTab: TabId | undefined = VALID_TABS.includes(
+    route?.params?.initialTab as TabId
+  )
+    ? (route.params.initialTab as TabId)
+    : undefined;
+
+  const routeFocusPaymentId: string | undefined =
+    typeof route?.params?.focusPaymentId === 'string'
+      ? route.params.focusPaymentId
+      : undefined;
+
   // -------------------------------------------
   // STATE
   // -------------------------------------------
@@ -687,7 +699,7 @@ export default function LoanDetail({ route, navigation }: any) {
   const [scoreV22Error, setScoreV22Error] = useState<string | null>(null);
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>(routeInitialTab ?? 'overview');
 
   // Score Impact scenario state
   const [scoreScenario, setScoreScenario] = useState<ScenarioId>('pay_next_today');
@@ -716,6 +728,19 @@ export default function LoanDetail({ route, navigation }: any) {
       setMe(data.user?.id ?? null);
     });
   }, []);
+
+  // Deep-link reliability: when LoanDetail is already mounted and a caller
+  // navigates again with new initialTab/focusPaymentId params (e.g. tapping
+  // a second Inbox extension item), React Navigation updates route.params
+  // without remounting the screen, so the activeTab useState initializer
+  // never re-runs. Re-apply the tab switch whenever either param changes.
+  // focusPaymentId itself needs no state — it's read directly from route.params
+  // on every render, so the row highlight stays in sync automatically.
+  useEffect(() => {
+    if (routeInitialTab) {
+      setActiveTab(routeInitialTab);
+    }
+  }, [routeInitialTab, routeFocusPaymentId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -1008,6 +1033,14 @@ export default function LoanDetail({ route, navigation }: any) {
   const isOutgoingView = routeDirection
     ? routeDirection === 'out'
     : isBorrower;
+
+  const pendingExtensionCount = useMemo(
+    () =>
+      isIncomingView
+        ? rows.filter((r) => r.extension_status === 'requested' && !r.paid_at).length
+        : 0,
+    [isIncomingView, rows]
+  );
 
   const paidTotal = useMemo(
     () =>
@@ -1760,7 +1793,7 @@ export default function LoanDetail({ route, navigation }: any) {
             }
           }}
         >
-          <View style={[s.payRow, item.paid_at ? s.payRowDone : undefined]}>
+          <View style={[s.payRow, item.paid_at ? s.payRowDone : undefined, item.id === routeFocusPaymentId ? s.payRowFocused : undefined]}>
             {/* Installment label + status pill */}
             <View style={s.rowTop}>
               <Text style={s.paymentIndexText}>
@@ -1982,21 +2015,37 @@ export default function LoanDetail({ route, navigation }: any) {
         { id: 'payments' as TabId, label: 'Payments' },
         { id: 'score' as TabId, label: 'Score' },
         { id: 'estimate' as TabId, label: 'Estimate' },
-      ]).map(({ id, label }) => (
-        <TouchableOpacity
-          key={id}
-          style={[s.tabItem, activeTab === id && s.tabItemActive]}
-          onPress={() => handleTabChange(id)}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: activeTab === id }}
-          accessibilityLabel={label}
-        >
-          <Text style={[s.tabLabel, activeTab === id && s.tabLabelActive]}>
-            {label}
-          </Text>
-          {activeTab === id && <View style={s.tabIndicator} />}
-        </TouchableOpacity>
-      ))}
+      ]).map(({ id, label }) => {
+        const showBadge = id === 'payments' && isIncomingView && pendingExtensionCount > 0;
+        return (
+          <TouchableOpacity
+            key={id}
+            style={[s.tabItem, activeTab === id && s.tabItemActive]}
+            onPress={() => handleTabChange(id)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === id }}
+            accessibilityLabel={
+              showBadge
+                ? `Payments, ${pendingExtensionCount} pending extension ${pendingExtensionCount === 1 ? 'request' : 'requests'}`
+                : label
+            }
+          >
+            <View style={s.tabLabelWrap}>
+              <Text style={[s.tabLabel, activeTab === id && s.tabLabelActive]}>
+                {label}
+              </Text>
+              {showBadge && (
+                <View style={s.tabBadge}>
+                  <Text style={s.tabBadgeText}>
+                    {pendingExtensionCount > 9 ? '9+' : String(pendingExtensionCount)}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {activeTab === id && <View style={s.tabIndicator} />}
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 
@@ -2666,6 +2715,22 @@ export default function LoanDetail({ route, navigation }: any) {
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <TopSummary />
       <TabBar />
+      {isIncomingView && pendingExtensionCount > 0 && (
+        <TouchableOpacity
+          style={s.extensionBanner}
+          onPress={() => handleTabChange('payments')}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`${pendingExtensionCount} extension ${pendingExtensionCount === 1 ? 'request needs' : 'requests need'} your review`}
+        >
+          <Text style={s.extensionBannerText}>
+            {pendingExtensionCount === 1
+              ? '1 extension request needs your review'
+              : `${pendingExtensionCount} extension requests need your review`}
+          </Text>
+          <Text style={s.extensionBannerChevron}>{' ›'}</Text>
+        </TouchableOpacity>
+      )}
       <View style={{ flex: 1 }}>
         {activeTab === 'overview' && <OverviewTab />}
         {paymentsTabInner}
@@ -2734,6 +2799,33 @@ const makeS = (t: AppTheme) => StyleSheet.create({
   tabItemActive: {},
   tabLabel: { fontSize: 13, fontWeight: '600', color: t.textMuted },
   tabLabelActive: { color: t.isDark ? t.brandBright : t.brand, fontWeight: '700' },
+  tabLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tabBadge: {
+    backgroundColor: '#F59E0B',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  extensionBanner: {
+    backgroundColor: '#FFFBEB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FDE68A',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  extensionBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  extensionBannerChevron: { fontSize: 16, fontWeight: '700', color: '#92400E' },
   tabIndicator: {
     position: 'absolute', bottom: 0, left: '15%', right: '15%',
     height: 2, borderRadius: 999,
@@ -2912,6 +3004,7 @@ const makeS = (t: AppTheme) => StyleSheet.create({
     elevation: t.isDark ? 0 : 1,
   },
   payRowDone: { backgroundColor: t.surfaceMuted, shadowOpacity: 0, elevation: 0 },
+  payRowFocused: { backgroundColor: t.isDark ? '#1C1A00' : '#FFFBEB', borderColor: '#FDE68A', borderWidth: 1 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   paymentIndexText: { fontSize: 11, fontWeight: '600', color: t.textMuted },
   amountText: { fontSize: 22, fontWeight: '800', color: t.textPrimary },
