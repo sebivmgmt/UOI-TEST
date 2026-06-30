@@ -16,9 +16,14 @@ import IouStepProgress from "../components/iou/IouStepProgress";
 import {
   type Frequency,
   QUICK_DATE_OPTIONS,
-  STANDARD_IOU_MAX_APR_PCT,
   frequencyLabel,
 } from "../constants/iouOptions";
+import { usePersonalIouPolicy } from "../hooks/usePersonalIouPolicy";
+import {
+  mapPersonalIouPolicyError,
+  policyStatusMessage,
+  MSG_POLICY_LOAD_FAILED,
+} from "../utils/personalIouPolicyErrors";
 import {
   formatDateInput,
   formatFancyDate,
@@ -73,8 +78,26 @@ function parsePrincipalCents(amount: string) {
   return Math.round((parseFloat(amount || "0") || 0) * 100);
 }
 
-function parseAprBps(aprPct: string) {
-  return Math.round((parseFloat(aprPct || "0") || 0) * 100);
+function parseAprBps(aprPct: string): number | null {
+  const normalized = aprPct.trim();
+
+  if (!normalized) return 0;
+
+  // Accept ordinary positive decimal percentages only. Reject partial values
+  // such as "5abc", scientific notation, negative values, NaN, and Infinity.
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return null;
+
+  const pct = Number(normalized);
+
+  if (!Number.isFinite(pct) || pct < 0) return null;
+
+  const bps = Math.round(pct * 100);
+
+  if (!Number.isFinite(bps) || !Number.isInteger(bps) || bps < 0) {
+    return null;
+  }
+
+  return bps;
 }
 
 function parseTermMonths(termMonths: string) {
@@ -117,6 +140,24 @@ export default function NewIouScreen({ navigation }: any) {
   const [meProfile, setMeProfile] = useState<ProfileLite | null>(null);
   const { recent, recentLoading } = useRecentCounterparties();
 
+  // Borrower ID for jurisdiction policy: current user when borrowing, counterparty when lending.
+  const borrowerIdForPolicy = useMemo(() => {
+    if (!loanSide || !userId) return null;
+    if (loanSide === "lend") return counterparty?.id ?? null;
+    return userId;
+  }, [loanSide, userId, counterparty]);
+
+  const {
+    policyStatus,
+    supported: policySupported,
+    maxAprBps,
+    loading: policyLoading,
+    error: policyError,
+    refresh: refreshPolicy,
+  } = usePersonalIouPolicy(borrowerIdForPolicy);
+
+  const parsedAprBps = useMemo(() => parseAprBps(aprPct), [aprPct]);
+
   // Live payment summary for Terms step — available while user fills in APR/term.
   // Guards against the phantom-1-month case: parseTermMonths clamps empty/"0" to 1,
   // so we check the raw integer before computing to avoid showing misleading previews.
@@ -126,7 +167,9 @@ export default function NewIouScreen({ navigation }: any) {
     if (!cents || !termMonths.trim() || isNaN(rawMonths) || rawMonths < 1) return null;
     const months = parseTermMonths(termMonths);
 
-    const bps = parseAprBps(aprPct);
+    const bps = parsedAprBps;
+    if (bps === null) return null;
+
     const firstDate = parseDateInput(firstDueDate) ?? startOfLocalDay(new Date());
 
     try {
@@ -142,7 +185,7 @@ export default function NewIouScreen({ navigation }: any) {
     } catch {
       return null;
     }
-  }, [amount, aprPct, termMonths, frequency, firstDueDate]);
+  }, [amount, parsedAprBps, termMonths, frequency, firstDueDate]);
 
   // Full schedule rows for Review step (placeholder iouId — not inserted yet).
   // Same raw-months guard as termsPreview to stay consistent.
@@ -154,14 +197,15 @@ export default function NewIouScreen({ navigation }: any) {
     if (!cents || !termMonths.trim() || isNaN(rawMonths) || rawMonths < 1 || !firstDate) return null;
     const months = parseTermMonths(termMonths);
 
-    const bps = parseAprBps(aprPct);
+    const bps = parsedAprBps;
+    if (bps === null) return null;
 
     try {
       return buildScheduleRows("preview", cents, bps, months, frequency, firstDate);
     } catch {
       return null;
     }
-  }, [amount, aprPct, termMonths, frequency, firstDueDate]);
+  }, [amount, parsedAprBps, termMonths, frequency, firstDueDate]);
 
   // Load current user for self-counterparty guard
   useEffect(() => {
@@ -318,14 +362,14 @@ export default function NewIouScreen({ navigation }: any) {
         Alert.alert("Required", "Enter a term length of at least 1 month.");
         return;
       }
-      const aprVal = parseFloat(aprPct || "0");
-      if (!isNaN(aprVal) && aprVal > STANDARD_IOU_MAX_APR_PCT) {
-        Alert.alert(
-          "APR too high",
-          `APR cannot exceed ${STANDARD_IOU_MAX_APR_PCT}% for a standard IOU.`
-        );
-        return;
-      }
+      // Defense in depth if the disabled Continue state is bypassed.
+      if (!borrowerIdForPolicy) return;
+      if (policyLoading) return;
+      if (policyError) return;
+      if (!policySupported) return;
+      if (maxAprBps === null) return;
+      if (parsedAprBps === null) return;
+      if (parsedAprBps > maxAprBps) return;
     }
     if (step === 4) {
       const parsed = parseDateInput(firstDueDate);
@@ -590,11 +634,60 @@ export default function NewIouScreen({ navigation }: any) {
           keyboardType="decimal-pad"
           autoFocus
           placeholderTextColor="#9CA3AF"
+          editable={
+            !policyLoading &&
+            !policyError &&
+            !!borrowerIdForPolicy &&
+            policySupported &&
+            maxAprBps !== null
+          }
         />
       </View>
-      <Text style={s.fieldHint}>
-        0 = interest-free · Max {STANDARD_IOU_MAX_APR_PCT}%
-      </Text>
+      {policyLoading && (
+        <Text style={s.policyNotice} accessibilityLiveRegion="polite">
+          Checking Personal IOU availability…
+        </Text>
+      )}
+      {!policyLoading && policySupported && maxAprBps !== null && (
+        <Text style={s.policyNoticeOk}>
+          Maximum APR: {(maxAprBps / 100).toFixed(2)}% for this borrower
+        </Text>
+      )}
+      {!policyLoading && policySupported && maxAprBps !== null && parsedAprBps === null && (
+        <Text style={s.policyNoticeError} accessibilityRole="alert">
+          Enter a valid non-negative APR percentage.
+        </Text>
+      )}
+      {!policyLoading &&
+        policySupported &&
+        maxAprBps !== null &&
+        parsedAprBps !== null &&
+        parsedAprBps > maxAprBps && (
+          <Text style={s.policyNoticeError} accessibilityRole="alert">
+            APR exceeds the {(maxAprBps / 100).toFixed(2)}% limit for this borrower.
+          </Text>
+        )}
+      {!policyLoading && !policySupported && policyStatus !== null && (
+        <Text style={s.policyNoticeError} accessibilityRole="alert">
+          {policyStatusMessage(policyStatus)}
+        </Text>
+      )}
+      {!policyLoading && policyError && policyStatus === null && (
+        <View style={s.policyErrorRow}>
+          <Text style={s.policyNoticeError} accessibilityRole="alert">
+            {MSG_POLICY_LOAD_FAILED}
+          </Text>
+          <TouchableOpacity onPress={() => { void refreshPolicy(); }} style={s.retryBtn}>
+            <Text style={s.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {!policyLoading && !policyError && policyStatus === null && borrowerIdForPolicy !== null && (
+        <Text style={s.policyNotice} accessibilityLiveRegion="polite">
+          Checking Personal IOU availability…
+        </Text>
+      )}
+      <Text style={s.fieldHint}>0 = interest-free</Text>
 
       <Text style={s.fieldLabel}>Term (months)</Text>
       <View style={s.inputWrap}>
@@ -978,23 +1071,49 @@ export default function NewIouScreen({ navigation }: any) {
     if (!loanSide || !counterparty || isSelfCounterparty) return true;
     if (!title.trim()) return true;
     if (!parsePrincipalCents(amount)) return true;
-    const aprVal = parseFloat(aprPct || "0");
-    if (!isNaN(aprVal) && aprVal > STANDARD_IOU_MAX_APR_PCT) return true;
+    if (!borrowerIdForPolicy) return true;
+    if (policyLoading) return true;
+    if (policyError) return true;
+    if (!policySupported) return true;
+    if (maxAprBps === null) return true;
+    if (parsedAprBps === null) return true;
+    if (parsedAprBps > maxAprBps) return true;
+
     const rawMonths = parseInt(termMonths.trim(), 10);
     if (!termMonths.trim() || isNaN(rawMonths) || rawMonths < 1) return true;
+
     const parsed = parseDateInput(firstDueDate);
     if (!parsed) return true;
     if (startOfLocalDay(parsed) < startOfLocalDay(new Date())) return true;
     if (!ackTermsPrivacy) return true;
+
     return false;
-  }, [submitting, loanSide, counterparty, isSelfCounterparty, title, amount, aprPct, termMonths, firstDueDate, ackTermsPrivacy]);
+  }, [
+    submitting,
+    loanSide,
+    counterparty,
+    isSelfCounterparty,
+    title,
+    amount,
+    borrowerIdForPolicy,
+    policyLoading,
+    policyError,
+    policySupported,
+    maxAprBps,
+    parsedAprBps,
+    termMonths,
+    firstDueDate,
+    ackTermsPrivacy,
+  ]);
 
   const handleSubmit = async () => {
     if (isSendDisabled) return;
 
     const principalCents = parsePrincipalCents(amount);
-    const aprBps = parseAprBps(aprPct);
+    const aprBps = parsedAprBps;
     const months = parseTermMonths(termMonths);
+
+    if (aprBps === null) return;
     const firstPaymentDate = parseDateInput(firstDueDate);
 
     if (!firstPaymentDate || !counterparty || !loanSide) return;
@@ -1058,10 +1177,7 @@ export default function NewIouScreen({ navigation }: any) {
       );
     } catch (e: any) {
       console.error("[NewIouScreen] createIou failed:", e);
-      Alert.alert(
-        "Something went wrong",
-        e?.message ?? "Could not send the IOU. Please try again."
-      );
+      Alert.alert("Could not send IOU", mapPersonalIouPolicyError(e));
     } finally {
       setSubmitting(false);
     }
@@ -1070,6 +1186,15 @@ export default function NewIouScreen({ navigation }: any) {
   const isReview = step === TOTAL_STEPS - 1;
   const isContinueDisabled =
     (step === 1 && (!counterparty || isSelfCounterparty)) ||
+    (step === 3 && (
+      !borrowerIdForPolicy ||
+      policyLoading ||
+      !!policyError ||
+      !policySupported ||
+      maxAprBps === null ||
+      parsedAprBps === null ||
+      parsedAprBps > maxAprBps
+    )) ||
     legalSubmitting;
 
   return (
@@ -1357,6 +1482,43 @@ const s = StyleSheet.create({
     fontSize: 13,
     color: BRAND,
     fontWeight: "600",
+  },
+  policyNotice: {
+    marginTop: 6,
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "600",
+  },
+  policyNoticeOk: {
+    marginTop: 6,
+    fontSize: 13,
+    color: BRAND,
+    fontWeight: "600",
+  },
+  policyNoticeError: {
+    marginTop: 6,
+    fontSize: 13,
+    color: RED,
+    fontWeight: "600",
+  },
+  policyErrorRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  retryBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: RED,
+  },
+  retryBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: RED,
   },
 
   // Frequency
