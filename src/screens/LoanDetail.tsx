@@ -24,6 +24,7 @@ import {
   getPublicIouScoreV22,
   formatTierLabel,
 } from '../services/iouScoreV22';
+import { decidePaymentExtension, ExtensionError } from '../services/paymentExtensionService';
 
 // ---------------------------------------------
 // TYPES
@@ -701,6 +702,7 @@ export default function LoanDetail({ route, navigation }: any) {
   const estimateScrollRef = useRef<ScrollView>(null);
 
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [extensionBusy, setExtensionBusy] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [explanationExpanded, setExplanationExpanded] = useState(false);
   const [expandedBreakdownItem, setExpandedBreakdownItem] = useState<string | null>(null);
@@ -1420,20 +1422,18 @@ export default function LoanDetail({ route, navigation }: any) {
   };
 
   const approveExtension = async (item: PaymentRow) => {
-    if (!me) return;
+    if (!me || extensionBusy) return;
+    setExtensionBusy(true);
     try {
-      const { error } = await supabase
-        .from('payments')
-        .update({
-          extension_status: 'approved',
-          extension_decision_at: new Date().toISOString(),
-          extension_decided_by: me,
-        })
-        .eq('id', item.id);
-      if (error) throw error;
+      await decidePaymentExtension(item.id, 'approved');
       await fetchPayments();
-    } catch (e: any) {
-      Alert.alert('Approve failed', e.message ?? String(e));
+    } catch (e: unknown) {
+      const msg = e instanceof ExtensionError
+        ? e.userMessage
+        : 'Could not approve the extension. Please try again.';
+      Alert.alert('Approve failed', msg);
+    } finally {
+      setExtensionBusy(false);
     }
   };
 
@@ -1444,20 +1444,18 @@ export default function LoanDetail({ route, navigation }: any) {
         text: 'Deny',
         style: 'destructive',
         onPress: async () => {
-          if (!me) return;
+          if (!me || extensionBusy) return;
+          setExtensionBusy(true);
           try {
-            const { error } = await supabase
-              .from('payments')
-              .update({
-                extension_status: 'denied',
-                extension_decision_at: new Date().toISOString(),
-                extension_decided_by: me,
-              })
-              .eq('id', item.id);
-            if (error) throw error;
+            await decidePaymentExtension(item.id, 'denied');
             await fetchPayments();
-          } catch (e: any) {
-            Alert.alert('Deny failed', e.message ?? String(e));
+          } catch (e: unknown) {
+            const msg = e instanceof ExtensionError
+              ? e.userMessage
+              : 'Could not deny the extension. Please try again.';
+            Alert.alert('Deny failed', msg);
+          } finally {
+            setExtensionBusy(false);
           }
         },
       },
@@ -1654,7 +1652,8 @@ export default function LoanDetail({ route, navigation }: any) {
       !isDeleted &&
       !item.paid_at &&
       (item.status === 'scheduled' || item.status === 'late') &&
-      item.extension_status !== 'requested';
+      item.extension_status !== 'requested' &&
+      item.extension_status !== 'approved';
 
     const leftActions = () => {
       if (!canRequestExtension) return <View />;

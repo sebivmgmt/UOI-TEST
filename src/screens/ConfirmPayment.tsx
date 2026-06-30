@@ -247,11 +247,6 @@ export default function ConfirmPayment({ route, navigation }: any) {
       const me = auth.user?.id;
       if (!me) throw new Error('Not signed in.');
 
-      await supabase
-        .from('payments')
-        .update({ payment_method: 'manual', initiated_at: new Date().toISOString() })
-        .eq('id', paymentId);
-
       const { error } = await supabase.rpc('claim_payment', { p_payment_id: paymentId, p_actor: me });
       if (error) throw error;
 
