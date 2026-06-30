@@ -295,7 +295,8 @@ export default function MissedPaymentImpactScreen({ route, navigation }: any) {
     !!payment &&
     !payment.paid_at &&
     (payment.status === 'scheduled' || payment.status === 'late') &&
-    payment.extension_status !== 'requested';
+    payment.extension_status !== 'requested' &&
+    payment.extension_status !== 'approved';
 
   const canPay =
     isBorrower &&

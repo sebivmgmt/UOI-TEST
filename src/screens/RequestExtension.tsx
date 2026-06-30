@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../supabase';
+import { requestPaymentExtension, ExtensionError } from '../services/paymentExtensionService';
 
 const GREEN = '#1B5E20';
 const GREEN_LIGHT = '#EEF7EE';
@@ -72,26 +73,22 @@ export default function RequestExtension({ route, navigation }: any) {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase
-        .from('payments')
-        .update({
-          extension_requested_at: new Date().toISOString(),
-          extension_requested_by: me,
-          extension_requested_until: extendUntil.toISOString().slice(0, 10),
-          extension_status: 'requested',
-          extension_reason: reason.trim() || null,
-        })
-        .eq('id', paymentId);
-
-      if (error) throw error;
+      await requestPaymentExtension(
+        paymentId,
+        extendUntil.toISOString().slice(0, 10),
+        reason.trim() || null,
+      );
 
       Alert.alert(
         'Extension requested',
         'Your lender will be notified and can approve or deny this request.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
-    } catch (e: any) {
-      Alert.alert('Request failed', e.message ?? String(e));
+    } catch (e: unknown) {
+      const msg = e instanceof ExtensionError
+        ? e.userMessage
+        : 'Could not submit the request. Please try again.';
+      Alert.alert('Request failed', msg);
     } finally {
       setSubmitting(false);
     }
