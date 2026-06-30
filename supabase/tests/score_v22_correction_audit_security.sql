@@ -108,6 +108,7 @@ begin
 
   update public.profiles
   set
+    state = 'GA',
     ach_status = 'ready',
     iou_score = 700,
     active_exposure_points = 0

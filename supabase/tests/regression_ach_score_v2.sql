@@ -68,8 +68,12 @@ BEGIN
 
   -- Mark both parties ACH-ready with a known iou_score baseline.
   UPDATE public.profiles
-  SET    ach_status = 'ready', iou_score = 700, active_exposure_points = 0
-  WHERE  id IN (v_lender_id, v_borrower_id);
+  SET
+    state = 'GA',
+    ach_status = 'ready',
+    iou_score = 700,
+    active_exposure_points = 0
+  WHERE id IN (v_lender_id, v_borrower_id);
 
   -- ── IOU 1: $500 principal, single payment, future due date ──────────────
   v_iou1_id := gen_random_uuid();
