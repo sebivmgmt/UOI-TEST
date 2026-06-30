@@ -23,6 +23,12 @@ import {
   formatTierLabel,
   type OfficialScoreV22,
 } from "../services/iouScoreV22";
+import { usePersonalIouPolicy } from "../hooks/usePersonalIouPolicy";
+import {
+  mapPersonalIouPolicyError,
+  policyStatusMessage,
+  MSG_POLICY_LOAD_FAILED,
+} from "../utils/personalIouPolicyErrors";
 
 type Frequency = "weekly" | "biweekly" | "monthly";
 
@@ -172,6 +178,28 @@ export default function PreviewSign({ route, navigation }: any) {
   const [ackElectronic, setAckElectronic] = useState(false);
   const [ackFee, setAckFee] = useState(false);
   const [ackNotLender, setAckNotLender] = useState(false);
+
+  const {
+    policyStatus,
+    supported: policySupported,
+    maxAprBps,
+    loading: policyLoading,
+    error: policyError,
+    refresh: refreshPolicy,
+  } = usePersonalIouPolicy(iou?.borrower_id ?? null);
+
+  const canApproveSchedule = !!(
+    iou &&
+    iou.borrower_id &&
+    !policyLoading &&
+    !policyError &&
+    policySupported &&
+    maxAprBps !== null &&
+    Number.isFinite(iou.apr_bps) &&
+    Number.isInteger(iou.apr_bps) &&
+    iou.apr_bps >= 0 &&
+    iou.apr_bps <= maxAprBps
+  );
 
   const loadPayments = useCallback(async (nextIouId: string) => {
     const selectOptions = [
@@ -665,6 +693,18 @@ export default function PreviewSign({ route, navigation }: any) {
   // Lender approves borrower's proposed schedule
   const onApproveSchedule = async () => {
     if (!iou || !iouId) return;
+    // canApproveSchedule covers all 9 conditions; these individual checks provide user messaging.
+    if (!canApproveSchedule) {
+      if (!iou.borrower_id) return Alert.alert("Cannot approve", "Borrower information is missing.");
+      if (policyLoading) return Alert.alert("Please wait", "Checking Personal IOU availability…");
+      if (policyError) return Alert.alert("Cannot approve", MSG_POLICY_LOAD_FAILED);
+      if (!policySupported) return Alert.alert("Cannot approve", policyStatus ? policyStatusMessage(policyStatus) : MSG_POLICY_LOAD_FAILED);
+      if (maxAprBps === null) return Alert.alert("Cannot approve", MSG_POLICY_LOAD_FAILED);
+      if (!Number.isFinite(iou.apr_bps) || !Number.isInteger(iou.apr_bps) || iou.apr_bps < 0) return Alert.alert("Cannot approve", "The IOU APR is invalid.");
+      if (iou.apr_bps > maxAprBps) return Alert.alert("Cannot approve", `The IOU's APR exceeds the ${(maxAprBps / 100).toFixed(2)}% limit for this borrower.`);
+      return;
+    }
+
     Alert.alert(
       "Approve schedule?",
       "This confirms the borrower's proposed payment schedule and sends the IOU back for their signature.",
@@ -697,7 +737,7 @@ export default function PreviewSign({ route, navigation }: any) {
                 },
               ]);
             } catch (e: any) {
-              Alert.alert("Approve failed", e?.message ?? String(e));
+              Alert.alert("Approve failed", mapPersonalIouPolicyError(e));
             } finally {
               setApprovingSchedule(false);
             }
@@ -976,6 +1016,23 @@ export default function PreviewSign({ route, navigation }: any) {
                 {totalScheduled > 0 ? currency(totalScheduled) : "—"}
               </Text>
             </View>
+            {policyLoading && (
+              <Text style={s.policyNotice} accessibilityLiveRegion="polite">Checking Personal IOU availability…</Text>
+            )}
+            {!policyLoading && policyError && (
+              <View style={s.policyErrorRow}>
+                <Text style={s.policyNoticeError} accessibilityRole="alert">{MSG_POLICY_LOAD_FAILED}</Text>
+                <TouchableOpacity onPress={() => { void refreshPolicy(); }} style={s.retryBtn}>
+                  <Text style={s.retryBtnText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {!policyLoading && !policyError && !policySupported && policyStatus !== null && (
+              <Text style={s.policyNoticeError} accessibilityRole="alert">{policyStatusMessage(policyStatus)}</Text>
+            )}
+            {!policyLoading && !policyError && policySupported && maxAprBps !== null && (
+              <Text style={s.policyNoticeOk}>APR limit for this borrower: {(maxAprBps / 100).toFixed(2)}%</Text>
+            )}
             <View style={s.approvalActions}>
               <TouchableOpacity
                 style={s.rejectScheduleBtn}
@@ -985,9 +1042,10 @@ export default function PreviewSign({ route, navigation }: any) {
                 <Text style={s.rejectScheduleBtnTxt}>Reject</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.btn, s.btnGrow, s.approveScheduleBtn]}
+                style={[s.btn, s.btnGrow, s.approveScheduleBtn,
+                  (!canApproveSchedule) && s.btnDisabled]}
                 onPress={onApproveSchedule}
-                disabled={approvingSchedule}
+                disabled={approvingSchedule || !canApproveSchedule}
               >
                 {approvingSchedule ? (
                   <ActivityIndicator color="#fff" size="small" />
@@ -1755,6 +1813,14 @@ const s = StyleSheet.create({
     lineHeight: 19,
     marginBottom: 10,
   },
+
+  // ── Policy notice (schedule approval area) ──
+  policyNotice: { marginTop: 8, fontSize: 13, color: "#667085", fontWeight: "600" },
+  policyNoticeOk: { marginTop: 8, fontSize: 13, color: GREEN, fontWeight: "600" },
+  policyNoticeError: { marginTop: 8, fontSize: 13, color: RED, fontWeight: "600" },
+  policyErrorRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" },
+  retryBtn: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: RED },
+  retryBtnText: { fontSize: 11, fontWeight: "800", color: RED },
 
   // ── Lender schedule approval ──
   scheduleApprovalCard: {

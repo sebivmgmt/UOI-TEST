@@ -30,6 +30,12 @@ export async function createIou(params: CreateIouParams): Promise<{ id: string }
     counterpartyId,
   } = params;
 
+  if (!lenderId) throw new Error("lenderId is required");
+  if (!borrowerId) throw new Error("borrowerId is required");
+  if (lenderId === borrowerId) throw new Error("lenderId and borrowerId must differ");
+  if (!Number.isInteger(aprBps) || aprBps < 0)
+    throw new Error("aprBps must be a non-negative integer");
+
   const schedulePreview = generateSchedule({
     principalCents,
     aprBps,

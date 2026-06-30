@@ -2,6 +2,12 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { supabase } from "../supabase";
+import { fetchPersonalIouPolicy } from "../services/personalIouPolicyService";
+import {
+  mapPersonalIouPolicyError,
+  policyStatusMessage,
+  MSG_BORROWER_UNAVAILABLE,
+} from "../utils/personalIouPolicyErrors";
 
 const GREEN = "#77B777";
 const RED = "#D9534F";
@@ -68,6 +74,56 @@ export default function AmendmentsList({ navigation }: any) {
       if (!meId) throw new Error("Not signed in");
 
       const p = amend.proposed || {};
+
+      // If this amendment changes APR, verify borrower policy before accepting.
+      // Hook-level state cannot be used in callbacks — use shared service directly.
+      if (p.apr_bps !== undefined) {
+        const proposedAprBps = Number(p.apr_bps);
+
+        if (!Number.isFinite(proposedAprBps) || !Number.isInteger(proposedAprBps) || proposedAprBps < 0) {
+          Alert.alert("Cannot accept", "The proposed APR is invalid.");
+          return;
+        }
+
+        // Fetch borrower_id directly from ious — do not rely on join field
+        const { data: iouRow, error: iouErr } = await supabase
+          .from("ious")
+          .select("borrower_id")
+          .eq("id", amend.iou_id)
+          .single();
+
+        if (iouErr || !iouRow?.borrower_id) {
+          Alert.alert("Cannot accept", MSG_BORROWER_UNAVAILABLE);
+          return;
+        }
+
+        let policy;
+        try {
+          policy = await fetchPersonalIouPolicy(iouRow.borrower_id);
+        } catch {
+          Alert.alert("Cannot accept", MSG_BORROWER_UNAVAILABLE);
+          return;
+        }
+
+        if (!policy.supported || policy.policyStatus !== "supported") {
+          Alert.alert("Cannot accept", policyStatusMessage(policy.policyStatus));
+          return;
+        }
+
+        if (policy.maxAprBps === null) {
+          Alert.alert("Cannot accept", MSG_BORROWER_UNAVAILABLE);
+          return;
+        }
+
+        if (proposedAprBps > policy.maxAprBps) {
+          Alert.alert(
+            "Cannot accept",
+            `The proposed APR exceeds the ${(policy.maxAprBps / 100).toFixed(2)}% limit for this borrower.`
+          );
+          return;
+        }
+      }
+
       const iouUpdates: any = {};
       if (p.apr_bps !== undefined) iouUpdates.apr_bps = Number(p.apr_bps);
       if (p.term_months !== undefined) iouUpdates.term_months = Number(p.term_months);
@@ -106,7 +162,7 @@ export default function AmendmentsList({ navigation }: any) {
       Alert.alert("Accepted", "Amendment applied.");
       load();
     } catch (e: any) {
-      Alert.alert("Accept failed", e.message ?? String(e));
+      Alert.alert("Accept failed", mapPersonalIouPolicyError(e));
     }
   }
 

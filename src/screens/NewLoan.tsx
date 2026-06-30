@@ -36,6 +36,12 @@ import { digitsOnly } from "../utils/counterpartyUtils";
 import { type Frequency, WEEKDAY_OPTIONS, QUICK_DATE_OPTIONS, frequencyLabel } from "../constants/iouOptions";
 import { buildScheduleRows } from "../utils/iouSchedule";
 import { createIou } from "../services/iouCreationService";
+import { usePersonalIouPolicy } from "../hooks/usePersonalIouPolicy";
+import {
+  mapPersonalIouPolicyError,
+  policyStatusMessage,
+  MSG_POLICY_LOAD_FAILED,
+} from "../utils/personalIouPolicyErrors";
 
 const GREEN = "#77B777";
 const BLUE = "#3B82F6";
@@ -112,6 +118,27 @@ export default function NewLoan({ route, navigation }: any) {
   const [prefilling, setPrefilling] = useState<boolean>(!!existingId);
   const [userId, setUserId] = useState<string | null>(null);
   const [meProfile, setMeProfile] = useState<ProfileLite | null>(null);
+  const [existingIouBorrowerId, setExistingIouBorrowerId] = useState<string | null>(null);
+
+  const borrowerIdForPolicy = useMemo(() => {
+    // schedule-only: propose_schedule_change changes dates only, no APR, no policy needed
+    if (borrowerScheduleEdit) return null;
+    // finalize existing IOU: use the IOU's authoritative borrower_id (null while still loading)
+    if (existingId) return existingIouBorrowerId;
+    // new IOU: derive from participant role
+    if (!userId) return null;
+    if (loanSide === "lend") return counterparty?.id ?? null;
+    return userId;
+  }, [borrowerScheduleEdit, existingId, existingIouBorrowerId, loanSide, userId, counterparty]);
+
+  const {
+    policyStatus,
+    supported: policySupported,
+    maxAprBps,
+    loading: policyLoading,
+    error: policyError,
+    refresh: refreshPolicy,
+  } = usePersonalIouPolicy(borrowerIdForPolicy);
 
   const counterpartyLabel = loanSide === "lend" ? "Borrower" : "Lender";
   const counterpartySearchPlaceholder =
@@ -183,6 +210,7 @@ export default function NewLoan({ route, navigation }: any) {
     }
 
     const iou = data as IouRow;
+    setExistingIouBorrowerId(iou.borrower_id ?? null);
     setTitle(iou.title ?? "");
     setAmount((iou.principal_cents / 100).toString());
     setAprPct((iou.apr_bps / 100).toString());
@@ -385,6 +413,7 @@ export default function NewLoan({ route, navigation }: any) {
     (parseFloat(amount || "0") || 0) * 100
   );
   const aprPreview = parseFloat(aprPct || "0") || 0;
+  const aprBps = Math.round((aprPreview) * 100);
   const termPreview = Math.max(
     1,
     Math.floor(parseInt(termMonths || "0", 10) || 0)
@@ -492,6 +521,22 @@ export default function NewLoan({ route, navigation }: any) {
     setShowDatePicker(false);
   };
 
+  // Disabled for all create/finalize actions when policy is not resolved.
+  // Not applied on the schedule-only path (propose_schedule_change has no APR).
+  const isPolicyActionDisabled = useMemo(() => {
+    if (borrowerScheduleEdit) return false;
+    if (!borrowerIdForPolicy) return true;
+    if (policyLoading) return true;
+    if (!!policyError) return true;
+    if (!policySupported) return true;
+    if (maxAprBps === null) return true;
+    const rawApr = Number(aprPct.trim() || "0");
+    const aprBps = Number.isFinite(rawApr) ? Math.round(rawApr * 100) : -1;
+    if (!Number.isFinite(aprBps) || aprBps < 0) return true;
+    if (aprBps > maxAprBps) return true;
+    return false;
+  }, [borrowerScheduleEdit, borrowerIdForPolicy, policyLoading, policyError, policySupported, maxAprBps, aprPct]);
+
   const handleCreatePress = async () => {
     Keyboard.dismiss();
 
@@ -591,7 +636,7 @@ export default function NewLoan({ route, navigation }: any) {
         }));
 
         if (borrowerScheduleEdit) {
-          // Borrower proposing payment dates — goes back to lender for approval
+          // propose_schedule_change only changes payment dates — no APR, no policy gate needed
           const { error: rpcErr } = await supabase.rpc("propose_schedule_change", {
             p_iou_id: existingId,
             p_payments: paymentsJson,
@@ -609,7 +654,35 @@ export default function NewLoan({ route, navigation }: any) {
           ]);
           return;
         } else {
-          // Lender finalizing schedule — bypasses triggers and forces status='open'
+          // Lender finalizing schedule — APR is locked in; policy gate required.
+          // borrowerIdForPolicy is set to existingIouBorrowerId for this path.
+          if (!existingIouBorrowerId) throw new Error("Missing borrower ID for policy check");
+          if (policyLoading) {
+            setLoading(false);
+            return Alert.alert("Please wait", "Checking Personal IOU availability…");
+          }
+          if (policyError) {
+            setLoading(false);
+            return Alert.alert("Not available", MSG_POLICY_LOAD_FAILED);
+          }
+          if (!policySupported) {
+            setLoading(false);
+            return Alert.alert(
+              "Not available",
+              policyStatus ? policyStatusMessage(policyStatus) : MSG_POLICY_LOAD_FAILED
+            );
+          }
+          if (maxAprBps === null) {
+            setLoading(false);
+            return Alert.alert("Not available", MSG_POLICY_LOAD_FAILED);
+          }
+          if (aprBps > maxAprBps) {
+            setLoading(false);
+            return Alert.alert(
+              "APR too high",
+              `APR exceeds the ${(maxAprBps / 100).toFixed(2)}% limit for this borrower.`
+            );
+          }
           const { data: rpcResult, error: rpcErr } = await supabase.rpc(
             "finalize_iou_schedule",
             {
@@ -636,6 +709,34 @@ export default function NewLoan({ route, navigation }: any) {
       } else {
         if (!userId) throw new Error("No signed-in user");
         if (!counterparty?.id) throw new Error("Missing counterparty.");
+
+        // Jurisdiction policy gate for new IOU creation
+        if (policyLoading) {
+          setLoading(false);
+          return Alert.alert("Please wait", "Checking Personal IOU availability…");
+        }
+        if (policyError) {
+          setLoading(false);
+          return Alert.alert("Not available", MSG_POLICY_LOAD_FAILED);
+        }
+        if (!policySupported) {
+          setLoading(false);
+          return Alert.alert(
+            "Not available",
+            policyStatus ? policyStatusMessage(policyStatus) : MSG_POLICY_LOAD_FAILED
+          );
+        }
+        if (maxAprBps === null) {
+          setLoading(false);
+          return Alert.alert("Not available", MSG_POLICY_LOAD_FAILED);
+        }
+        if (aprBps > maxAprBps) {
+          setLoading(false);
+          return Alert.alert(
+            "APR too high",
+            `APR exceeds the ${(maxAprBps / 100).toFixed(2)}% limit for this borrower.`
+          );
+        }
 
         await createIou({
           title: title.trim(),
@@ -666,7 +767,7 @@ export default function NewLoan({ route, navigation }: any) {
         );
       }
     } catch (e: any) {
-      Alert.alert("Create failed", String(e?.message ?? e));
+      Alert.alert("Could not save IOU", mapPersonalIouPolicyError(e));
     } finally {
       setLoading(false);
     }
@@ -993,13 +1094,34 @@ export default function NewLoan({ route, navigation }: any) {
                 value={aprPct}
                 onChangeText={setAprPct}
                 returnKeyType="next"
-                editable={!borrowerScheduleEdit}
+                editable={!borrowerScheduleEdit && !policyLoading}
               />
               <Text style={s.fieldHelper}>
                 {aprPct.trim()
                   ? `${aprPct.trim()}% annual rate`
                   : "No APR entered"}
               </Text>
+              {policyLoading && (
+                <Text style={s.policyNotice} accessibilityLiveRegion="polite">Checking availability…</Text>
+              )}
+              {!policyLoading && policySupported && maxAprBps !== null && (
+                <Text style={aprBps > maxAprBps ? s.policyNoticeError : s.policyNoticeOk}>
+                  {aprBps > maxAprBps
+                    ? `APR exceeds the ${(maxAprBps / 100).toFixed(2)}% limit for this borrower.`
+                    : `Max APR: ${(maxAprBps / 100).toFixed(2)}% for this borrower`}
+                </Text>
+              )}
+              {!policyLoading && !policySupported && policyStatus !== null && (
+                <Text style={s.policyNoticeError} accessibilityRole="alert">{policyStatusMessage(policyStatus)}</Text>
+              )}
+              {!policyLoading && policyError && policyStatus === null && (
+                <View style={s.policyErrorRow}>
+                  <Text style={s.policyNoticeError} accessibilityRole="alert">{MSG_POLICY_LOAD_FAILED}</Text>
+                  <TouchableOpacity onPress={() => { void refreshPolicy(); }} style={s.retryBtn}>
+                    <Text style={s.retryBtnText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
 
@@ -1218,7 +1340,7 @@ export default function NewLoan({ route, navigation }: any) {
         <Button
           title={loading ? `${modeLabel}…` : modeLabel}
           onPress={handleCreatePress}
-          disabled={loading || isSelfCounterparty}
+          disabled={loading || isSelfCounterparty || isPolicyActionDisabled}
         />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -1721,6 +1843,43 @@ const s = StyleSheet.create({
     color: "#fff",
     fontWeight: "800",
     fontSize: 14,
+  },
+  policyNotice: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#667085",
+    fontWeight: "600",
+  },
+  policyNoticeOk: {
+    marginTop: 4,
+    fontSize: 12,
+    color: GREEN,
+    fontWeight: "600",
+  },
+  policyNoticeError: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#D9534F",
+    fontWeight: "600",
+  },
+  policyErrorRow: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  retryBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#D9534F",
+  },
+  retryBtnText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#D9534F",
   },
 
   borrowerEditBanner: {
