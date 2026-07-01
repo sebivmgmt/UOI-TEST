@@ -144,12 +144,10 @@ export default function PersonScreen({ route, navigation }: any) {
   };
 
   const startNewLoan = () => {
-    navigation.navigate("NewLoan", {
-      presetBorrowerId: person?.id,
-      presetBorrowerName: displayName,
-      presetBorrowerEmail: null,
-      presetBorrowerPhone: null,
-      presetBorrowerPhoneVerified: null,
+    navigation.navigate("NewIouScreen", {
+      initialRole: "lend",
+      presetCounterpartyId: person?.id,
+      presetCounterpartyName: displayName ?? null,
     });
   };
 

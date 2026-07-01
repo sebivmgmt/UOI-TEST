@@ -156,7 +156,13 @@ export type RootStackParamList = {
     paymentAmount?: number;
     title?: string | null;
   };
-  NewIouScreen: { initialRole?: "lend" | "borrow" } | undefined;
+  NewIouScreen:
+    | {
+        initialRole?: "lend" | "borrow";
+        presetCounterpartyId?: string;
+        presetCounterpartyName?: string | null;
+      }
+    | undefined;
   TrustReport: undefined;
   ViewTrustReport: { ownerUserId: string; ownerName?: string };
   TrustIntro: undefined;
@@ -471,6 +477,7 @@ function PeopleStack() {
       <Stack.Screen name="SearchUsers" component={SearchUsersScreen} options={{ title: "Friends" }} />
       <Stack.Screen name="Person" component={PersonScreen} options={{ title: "Person" }} />
       <Stack.Screen name="NewLoan" component={NewLoan} options={{ title: "New IOU" }} />
+      <Stack.Screen name="NewIouScreen" component={NewIouScreen} options={{ title: "New IOU", headerShown: false }} />
       <Stack.Screen name="ViewTrustReport" component={ViewTrustReportScreen} options={{ title: "Trust Report" }} />
     </Stack.Navigator>
   );

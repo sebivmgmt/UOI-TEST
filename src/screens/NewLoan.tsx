@@ -35,7 +35,6 @@ import {
 import { digitsOnly } from "../utils/counterpartyUtils";
 import { type Frequency, WEEKDAY_OPTIONS, QUICK_DATE_OPTIONS, frequencyLabel } from "../constants/iouOptions";
 import { buildScheduleRows } from "../utils/iouSchedule";
-import { createIou } from "../services/iouCreationService";
 import { usePersonalIouPolicy } from "../hooks/usePersonalIouPolicy";
 import {
   mapPersonalIouPolicyError,
@@ -180,6 +179,21 @@ export default function NewLoan({ route, navigation }: any) {
 
     void boot();
   }, []);
+
+  // NewLoan is reserved for existing-IOU schedule work only. Callers that do
+  // not supply an existing IOU id are redirected to the canonical guided flow.
+  useEffect(() => {
+    if (!existingId) {
+      navigation.replace("NewIouScreen", {
+        ...(routeMode !== undefined ? { initialRole: routeMode } : {}),
+        ...(presetBorrowerId ? { presetCounterpartyId: presetBorrowerId } : {}),
+        ...(presetBorrowerName != null ? { presetCounterpartyName: presetBorrowerName } : {}),
+      });
+    }
+    // existingId, routeMode, presetBorrowerId, presetBorrowerName are stable
+    // route-param constants — navigation is stable after mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation]);
 
   useEffect(() => {
     if (presetBorrowerId && !existingId) {
@@ -714,65 +728,6 @@ export default function NewLoan({ route, navigation }: any) {
         }
 
         navigation.navigate("PreviewSign", { id: existingId });
-      } else {
-        if (!userId) throw new Error("No signed-in user");
-        if (!counterparty?.id) throw new Error("Missing counterparty.");
-
-        // Jurisdiction policy gate for new IOU creation
-        if (policyLoading) {
-          setLoading(false);
-          return Alert.alert("Please wait", "Checking Personal IOU availability…");
-        }
-        if (policyError) {
-          setLoading(false);
-          return Alert.alert("Not available", MSG_POLICY_LOAD_FAILED);
-        }
-        if (!policySupported) {
-          setLoading(false);
-          return Alert.alert(
-            "Not available",
-            policyStatus ? policyStatusMessage(policyStatus) : MSG_POLICY_LOAD_FAILED
-          );
-        }
-        if (maxAprBps === null) {
-          setLoading(false);
-          return Alert.alert("Not available", MSG_POLICY_LOAD_FAILED);
-        }
-        if (aprBps > maxAprBps) {
-          setLoading(false);
-          return Alert.alert(
-            "APR too high",
-            `APR exceeds the ${(maxAprBps / 100).toFixed(2)}% limit for this borrower.`
-          );
-        }
-
-        await createIou({
-          title: title.trim(),
-          lenderId,
-          borrowerId,
-          principalCents,
-          aprBps,
-          termMonths: months,
-          frequency,
-          firstPaymentDate,
-          createdBy: me,
-          counterpartyId: counterparty.id,
-        });
-
-        Alert.alert(
-          "IOU request sent",
-          "The other person can now accept or deny this IOU from their inbox.",
-          [
-            {
-              text: "Go home",
-              onPress: () => {
-                const parent = navigation.getParent();
-                if (parent) parent.navigate("HomeTab", { screen: "Home" });
-                else navigation.navigate("Home");
-              },
-            },
-          ]
-        );
       }
     } catch (e: any) {
       Alert.alert("Could not save IOU", mapPersonalIouPolicyError(e));
@@ -824,9 +779,10 @@ export default function NewLoan({ route, navigation }: any) {
     }
   }, [previewRows, title]);
 
-  const modeLabel = existingId
-    ? borrowerScheduleEdit ? "Propose Schedule" : "Save Schedule"
-    : "Send IOU Request";
+  // No existingId → redirect effect fires; render nothing until navigation completes.
+  if (!existingId) return null;
+
+  const modeLabel = borrowerScheduleEdit ? "Propose Schedule" : "Save Schedule";
 
   return (
     <KeyboardAvoidingView

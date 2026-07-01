@@ -167,7 +167,11 @@ export default function SearchUsersScreen({ navigation }: any) {
         <TouchableOpacity
           style={s.actionBtn}
           onPress={() =>
-            navigation.navigate("NewLoan", { presetBorrowerId: id, presetBorrowerName: displayName })
+            navigation.navigate("NewIouScreen", {
+              initialRole: "lend",
+              presetCounterpartyId: id,
+              presetCounterpartyName: displayName,
+            })
           }
           hitSlop={8}
         >

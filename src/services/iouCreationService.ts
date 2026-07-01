@@ -1,6 +1,6 @@
 import { supabase } from "../supabase";
-import { generateSchedule } from "../utils/schedule";
 import { formatDateInput } from "../utils/dateUtils";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../constants/legalVersions";
 import type { Frequency } from "../constants/iouOptions";
 
 export type CreateIouParams = {
@@ -12,8 +12,6 @@ export type CreateIouParams = {
   termMonths: number;
   frequency: Frequency;
   firstPaymentDate: Date;
-  createdBy: string;
-  counterpartyId: string;
 };
 
 export async function createIou(params: CreateIouParams): Promise<{ id: string }> {
@@ -26,8 +24,6 @@ export async function createIou(params: CreateIouParams): Promise<{ id: string }
     termMonths,
     frequency,
     firstPaymentDate,
-    createdBy,
-    counterpartyId,
   } = params;
 
   if (!lenderId) throw new Error("lenderId is required");
@@ -36,47 +32,47 @@ export async function createIou(params: CreateIouParams): Promise<{ id: string }
   if (!Number.isInteger(aprBps) || aprBps < 0)
     throw new Error("aprBps must be a non-negative integer");
 
-  const schedulePreview = generateSchedule({
-    principalCents,
-    aprBps,
-    termMonths,
-    frequency,
-    firstDueDate: firstPaymentDate,
+  const { data, error } = await supabase.rpc("create_iou_with_schedule", {
+    p_title: title,
+    p_lender_id: lenderId,
+    p_borrower_id: borrowerId,
+    p_principal_cents: principalCents,
+    p_apr_bps: aprBps,
+    p_start_date: formatDateInput(firstPaymentDate),
+    p_term_months: termMonths,
+    p_frequency: frequency,
+    p_terms_version: TERMS_VERSION,
+    p_privacy_version: PRIVACY_VERSION,
   });
 
-  const { data: iou, error: iouErr } = await supabase
-    .from("ious")
-    .insert([
-      {
-        title,
-        lender_id: lenderId,
-        borrower_id: borrowerId,
-        principal_cents: principalCents,
-        apr_bps: aprBps,
-        start_date: formatDateInput(firstPaymentDate),
-        term_months: termMonths,
-        frequency,
-        status: "open",
-        created_by: createdBy,
-        requested_action_by: counterpartyId,
-        total_installments: schedulePreview.length,
-        paid_installments: 0,
-      },
-    ])
-    .select("id")
-    .single();
+  if (error) throw error;
 
-  if (iouErr || !iou) throw iouErr ?? new Error("Insert failed");
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
 
-  const rows = schedulePreview.map((p) => ({
-    iou_id: iou.id,
-    due_date: p.due_date,
-    amount_cents: p.amount_cents,
-    status: "scheduled",
-  }));
+  if (rows.length !== 1)
+    throw new Error(`RPC returned ${rows.length} rows; expected exactly one`);
 
-  const { error: payErr } = await supabase.from("payments").insert(rows);
-  if (payErr) throw payErr;
+  const row = rows[0];
 
-  return { id: iou.id };
+  if (!row || typeof row.id !== "string" || !row.id.trim())
+    throw new Error("RPC returned no valid id");
+
+  if (row.status !== "open")
+    throw new Error(`Unexpected IOU status from RPC: ${row.status}`);
+
+  const totalInstallments = Number(row.total_installments);
+  const scheduledCount = Number(row.scheduled_count);
+
+  if (!Number.isSafeInteger(totalInstallments) || totalInstallments <= 0)
+    throw new Error("RPC returned invalid installment count");
+
+  if (!Number.isSafeInteger(scheduledCount) || scheduledCount <= 0)
+    throw new Error("RPC returned invalid scheduled payment count");
+
+  if (scheduledCount !== totalInstallments)
+    throw new Error(
+      `Schedule incomplete: expected ${totalInstallments} payments, got ${scheduledCount}`
+    );
+
+  return { id: row.id };
 }

@@ -106,20 +106,7 @@ export async function addLoan(partial: Omit<Loan, 'id' | 'createdAt'>): Promise<
   return loan;
 }
 
-export async function recordPayment(loanId: string, amount: number, note?: string) {
-  const { error } = await supabase
-    .from('payments')
-    .insert({ loan_id: loanId, amount, note });
-  if (error) throw error;
 
-  const { error: upErr } = await supabase.rpc('iou_apply_payment', {
-    p_loan_id: loanId,
-    p_amount: amount,
-  });
-  if (upErr) throw upErr;
-
-  await getLoans(); // refresh cache
-}
 export async function updateLoan(
   id: string,
   patch: Partial<Pick<Loan, 'title' | 'status' | 'principal' | 'amountRemaining'>>

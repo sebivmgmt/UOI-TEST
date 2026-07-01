@@ -111,6 +111,15 @@ export default function NewIouScreen({ route, navigation }: any) {
       ? route.params.initialRole
       : null;
 
+  const presetCounterpartyId: string | undefined =
+    typeof route?.params?.presetCounterpartyId === "string"
+      ? route.params.presetCounterpartyId
+      : undefined;
+  const presetCounterpartyName: string | null =
+    typeof route?.params?.presetCounterpartyName === "string"
+      ? route.params.presetCounterpartyName
+      : null;
+
   // When the caller already collected the role (e.g. MoneyAction's Lend/Borrow
   // cards), skip the Role step and start on Who. Back still returns to Role.
   const [step, setStep] = useState(initialRole ? 1 : 0);
@@ -139,8 +148,12 @@ export default function NewIouScreen({ route, navigation }: any) {
 
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Counterparty / Who step state
-  const [counterparty, setCounterparty] = useState<ProfileLite | null>(null);
+  // Counterparty / Who step state — pre-populate when a caller passes preset fields
+  const [counterparty, setCounterparty] = useState<ProfileLite | null>(
+    presetCounterpartyId
+      ? { id: presetCounterpartyId, public_name: presetCounterpartyName, avatar_url: null, iou_hash: null }
+      : null
+  );
   const [results, setResults] = useState<ProfileLite[]>([]);
   const [searching, setSearching] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -1164,8 +1177,6 @@ export default function NewIouScreen({ route, navigation }: any) {
         termMonths: months,
         frequency,
         firstPaymentDate,
-        createdBy: me,
-        counterpartyId: counterparty.id,
       });
 
       Alert.alert(
