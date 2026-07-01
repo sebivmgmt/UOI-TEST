@@ -29,6 +29,8 @@ import {
   policyStatusMessage,
   MSG_POLICY_LOAD_FAILED,
 } from "../utils/personalIouPolicyErrors";
+import { TERMS_VERSION, PRIVACY_VERSION } from "../constants/legalVersions";
+import { TERMS_TEXT, PRIVACY_TEXT } from "../constants/legalDocuments";
 
 type Frequency = "weekly" | "biweekly" | "monthly";
 
@@ -61,85 +63,6 @@ type PaymentPreviewRow = {
   due: string;
   status: string;
 };
-
-const TERMS_VERSION = "2026-05-17";
-const PRIVACY_VERSION = "2026-05-17";
-
-const TERMS_TEXT = `IOU Terms of Service
-Effective: ${TERMS_VERSION}
-
-1. Agreement to Terms
-By using the IOU app, you agree to these Terms of Service. If you do not agree, do not use the app.
-
-2. Description of Service
-IOU is a personal lending agreement tool that helps individuals create, track, and manage loan agreements between people they know and trust. IOU is not a bank, lender, debt collector, financial institution, or payment processor.
-
-3. Not a Financial Institution
-IOU LLC is not a lender, creditor, or financial institution. IOU does not provide credit, guarantee repayment, or enforce loan agreements. All loans created through IOU are personal agreements between the lender and borrower. IOU does not participate as a party to any loan agreement.
-
-4. Platform Fee
-IOU charges a platform fee of 0.7% of the principal loan amount to create and manage the agreement. This fee is charged to the borrower and is separate from any interest agreed upon between the parties.
-
-5. Electronic Records and Signatures
-You consent to receive all agreements, disclosures, and notices electronically. Your typed signature constitutes a legally binding electronic signature to the extent permitted by applicable law.
-
-6. User Responsibilities
-You are solely responsible for the accuracy of information you enter. You agree to use IOU only for lawful purposes. You agree not to use IOU to facilitate fraudulent, abusive, or predatory lending.
-
-7. Dispute Resolution
-Any disputes between lenders and borrowers are between those individuals. IOU LLC has no obligation to mediate, arbitrate, or resolve disputes between users.
-
-8. Limitation of Liability
-IOU LLC is not liable for any loss, unpaid amounts, damages, or harm arising from the use of the platform or any loan agreement created through it. Use IOU at your own risk.
-
-9. Privacy
-Your use of IOU is also governed by the IOU Privacy Policy, which is incorporated into these Terms by reference.
-
-10. Changes to Terms
-IOU may update these Terms from time to time. Continued use of the app after changes constitutes acceptance of the updated Terms.
-
-11. Governing Law
-These Terms are governed by the laws of the state in which IOU LLC is incorporated, without regard to conflict of law principles.
-
-By tapping "I agree to the Terms of Service" you confirm that you have reviewed, understood, and agree to these Terms of Service.`;
-
-const PRIVACY_TEXT = `IOU Privacy Policy
-Effective: ${PRIVACY_VERSION}
-
-1. Information We Collect
-IOU collects information you provide directly, including: your name, email address, phone number, and any loan agreement details you enter. We may also collect device information and usage data to improve the app.
-
-2. How We Use Your Information
-We use your information to: operate and maintain the IOU service, facilitate loan agreements between users, process platform fees, send notifications related to your agreements, and improve the app.
-
-3. Information Sharing
-We do not sell your personal information. We share your information only: with the counterparty in a loan agreement (lender or borrower), with service providers who help us operate the platform, and as required by law.
-
-4. Loan Agreement Data
-When you create or participate in a loan agreement, certain details (your name, payment amounts, dates) are shared with the other party to the agreement. This is necessary to operate the service.
-
-5. Electronic Signatures
-Typed signatures you provide are stored as part of the loan agreement record. This record may be referenced in the event of a dispute.
-
-6. Data Security
-We take reasonable steps to protect your information. However, no internet transmission is 100% secure, and we cannot guarantee absolute security.
-
-7. Data Retention
-We retain your data as long as your account is active or as needed to comply with legal obligations. You may request deletion of your account data by contacting us.
-
-8. Your Rights
-Depending on your jurisdiction, you may have rights to access, correct, or delete your personal data. Contact us to exercise these rights.
-
-9. Children
-IOU is not intended for users under 18. We do not knowingly collect data from minors.
-
-10. Contact
-For privacy questions or requests, contact us at the email address listed in the app.
-
-11. Changes to This Policy
-We may update this Privacy Policy. We will notify you of significant changes. Continued use of the app constitutes acceptance of the updated policy.
-
-By tapping "I agree to the Privacy Policy" you confirm that you have reviewed and understood how IOU collects, uses, and shares your information.`;
 
 const GREEN = "#77B777";
 const GREEN_DARK = "#5F9F5F";
@@ -174,6 +97,7 @@ export default function PreviewSign({ route, navigation }: any) {
   const [privacyReviewed, setPrivacyReviewed] = useState(false);
   const [showDocModal, setShowDocModal] = useState<null | "terms" | "privacy">(null);
   const [docScrolledToBottom, setDocScrolledToBottom] = useState(false);
+  const [docScrollPercent, setDocScrollPercent] = useState(0);
   const docViewHeightRef = useRef(0);
   const [ackElectronic, setAckElectronic] = useState(false);
   const [ackFee, setAckFee] = useState(false);
@@ -423,8 +347,14 @@ export default function PreviewSign({ route, navigation }: any) {
   const perPayment = payments.length > 0 ? payments[0].amount_cents : 0;
   const feeCents = iou ? Math.round(iou.principal_cents * 0.007) : 0;
 
-  // Profile name for signature matching (borrower only)
-  const profileName = isBorrowerView ? (borrower?.public_name ?? null) : null;
+  // Advisory profile name hint — displayed to help the user type the right name.
+  // profile_directory.public_name is display-only; the backend is the final
+  // authority for canonical name matching (profiles.display_name/name/full_name).
+  const profileName: string | null = isBorrowerView
+    ? (borrower?.public_name ?? null)
+    : isLenderView
+      ? (lender?.public_name ?? null)
+      : null;
 
   const normalizedSignatureName = useMemo(
     () => signatureName.replace(/\s+/g, " ").trim(),
@@ -445,13 +375,14 @@ export default function PreviewSign({ route, navigation }: any) {
   }, [profileName, normalizedSignatureName]);
 
   const signatureReady = useMemo(() => {
+    // Name-vs-profile check is advisory only; the backend enforces the
+    // canonical match against profiles.display_name/name/full_name.
     return (
       agreedToContract &&
       signatureParts.length >= 2 &&
-      !signatureLooksLikeEmail &&
-      signatureMatchesProfile
+      !signatureLooksLikeEmail
     );
-  }, [agreedToContract, signatureLooksLikeEmail, signatureParts.length, signatureMatchesProfile]);
+  }, [agreedToContract, signatureLooksLikeEmail, signatureParts.length]);
 
   const signatureErrorText = useMemo(() => {
     if (!normalizedSignatureName) return null;
@@ -475,6 +406,10 @@ export default function PreviewSign({ route, navigation }: any) {
 
   const canAccept = scheduleReady && allAcknowledged && signatureReady && !isLocked && !schedulePendingApproval;
 
+  // Lender gate mirrors borrower — both parties must complete the full
+  // acknowledgment flow before accept_iou_with_legal is called.
+  const canActivateLender = scheduleReady && !schedulePendingApproval && allAcknowledged && signatureReady && !isLocked;
+
   const acceptBlockReason: string | null = schedulePendingApproval
     ? "Waiting for lender to approve your proposed schedule."
     : !scheduleReady
@@ -489,25 +424,57 @@ export default function PreviewSign({ route, navigation }: any) {
               ? `Sign as "${profileName}" to match your profile.`
               : null;
 
-  const formatActivateError = (err: any) => {
-    const raw = err?.message ?? String(err) ?? "Could not activate this IOU.";
-    const lower = raw.toLowerCase();
-    if (lower.includes("maximum number of active loans") || lower.includes("maximum of 10 active loans"))
+  const formatAcceptError = (err: any): string => {
+    const raw: string = err?.message ?? String(err) ?? "Could not accept this IOU.";
+    const m = raw.toLowerCase();
+    if (m.includes("typed signature must exactly match"))
+      return "Your typed signature must exactly match your profile name. Check the hint above and try again.";
+    if (m.includes("profile name is required"))
+      return "A full legal name is required in your profile before you can accept this IOU.";
+    if (m.includes("terms of service and privacy policy are required"))
+      return "The legal documents you reviewed are outdated. Please update the app and try again.";
+    if (m.includes("already active") || m.includes("activation did not succeed"))
+      return "This IOU has already been activated.";
+    if (m.includes("acceptance record already exists") || m.includes("already exists for this user"))
+      return "You have already accepted this IOU.";
+    if (m.includes("only the user currently requested to act"))
+      return "It is not your turn to act on this IOU.";
+    if (m.includes("not a party to this iou"))
+      return "You are not a party to this IOU.";
+    if (m.includes("participants must complete bank setup") || m.includes("complete bank setup"))
+      return "Both participants must complete bank setup before this IOU can be activated.";
+    if (m.includes("no scheduled payment plan"))
+      return "This IOU has no payment schedule yet.";
+    if (m.includes("payment schedule is incomplete"))
+      return "The payment schedule is incomplete and does not match the expected count.";
+    if (m.includes("payment schedule total") && m.includes("less than principal"))
+      return "The payment schedule total does not cover the principal amount.";
+    if (m.includes("iou is not ready for acceptance") || m.includes("cannot be accepted in its current state"))
+      return "This IOU is not ready for acceptance in its current state.";
+    if (m.includes("all required acknowledgments"))
+      return "Please check all required acknowledgments before accepting.";
+    if (m.includes("maximum number of active loans") || m.includes("maximum of 10 active loans"))
       return "This borrower already has 10 active loans and cannot activate another one right now.";
-    if (lower.includes("maximum allowed exposure") || lower.includes("would exceed max exposure") || lower.includes("would exceed the maximum allowed exposure"))
+    if (m.includes("maximum allowed exposure") || m.includes("would exceed"))
       return "Activating this IOU would push the borrower over the current exposure limit.";
-    if (lower.includes("borrower is required before activation"))
-      return "Add a borrower before activating this IOU.";
     return raw;
   };
 
   const openDocument = (type: "terms" | "privacy") => {
     setDocScrolledToBottom(false);
+    setDocScrollPercent(0);
     setShowDocModal(type);
   };
 
   const handleDocScroll = (event: any) => {
     const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+    if (contentSize.height > 0) {
+      const pct = Math.min(
+        100,
+        Math.round(((contentOffset.y + layoutMeasurement.height) / contentSize.height) * 100)
+      );
+      setDocScrollPercent(pct);
+    }
     if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 40) {
       setDocScrolledToBottom(true);
     }
@@ -540,18 +507,16 @@ export default function PreviewSign({ route, navigation }: any) {
     navigation.navigate("NewLoan", { id: iouId, borrowerScheduleEdit: isBorrowerView });
   };
 
-  // Lender: activates the IOU directly
+  // Lender: accepts and activates via the secure RPC — same legal gates as borrower.
   const onActivate = async () => {
     if (!iou || !iouId) return;
     if (isActivated) { Alert.alert("Already active", "This IOU has already been activated."); return; }
-    if (!isLenderView) { Alert.alert("Activate blocked", "Only the lender can activate this IOU."); return; }
+    if (!isLenderView) { Alert.alert("Not authorized", "Only the lender can activate this IOU."); return; }
     if (payments.length === 0) { Alert.alert("Missing schedule", "This IOU needs at least one scheduled payment before it can be activated."); return; }
-    if (!signatureReady) { Alert.alert("Signature required", "Enter your full first and last name, then confirm you agree to the contract before activating."); return; }
+    if (!allAcknowledged) { Alert.alert("Acknowledgments required", "Complete all required acknowledgments before activating."); return; }
+    if (!signatureReady) { Alert.alert("Signature required", "Enter your full first and last name and confirm you agree to the contract before activating."); return; }
 
     // ACH readiness gate — must check both parties.
-    // achBlocker = 'self' means the current user (lender here) must finish bank setup.
-    // achBlocker = 'counterparty' means the borrower must finish — lender should NOT be
-    // routed to their own LinkBank in this case.
     if (achBlocker === "self") {
       Alert.alert(
         "Bank setup required",
@@ -573,7 +538,7 @@ export default function PreviewSign({ route, navigation }: any) {
 
     Alert.alert(
       "Activate IOU?",
-      "This will lock in the schedule and formally activate this IOU.",
+      "This will lock in the schedule and formally activate this IOU. Your legal acceptance will be recorded.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -582,11 +547,26 @@ export default function PreviewSign({ route, navigation }: any) {
           onPress: async () => {
             try {
               setActivating(true);
-              const { error } = await supabase.rpc("activate_iou", {
+              const { data, error } = await supabase.rpc("accept_iou_with_legal", {
                 p_iou_id: iouId,
-                p_contract_text: contractPreview,
+                p_typed_signature: normalizedSignatureName,
+                p_terms_version: TERMS_VERSION,
+                p_privacy_version: PRIVACY_VERSION,
+                p_ack_contract: agreedToContract,
+                p_ack_electronic: ackElectronic,
+                p_ack_fee: ackFee,
+                p_ack_not_lender: ackNotLender,
+                p_platform: Platform.OS,
+                p_app_version: null,
+                p_device_metadata: null,
+                p_metadata: null,
               });
               if (error) throw error;
+              const rows = Array.isArray(data) ? data : data ? [data] : [];
+              const result = rows[0];
+              if (!result || result.status !== "open") {
+                throw new Error("Activation did not succeed. Please try again.");
+              }
               await load();
               Alert.alert("IOU activated", "Your IOU is now active.", [
                 {
@@ -599,7 +579,7 @@ export default function PreviewSign({ route, navigation }: any) {
                 },
               ]);
             } catch (e: any) {
-              Alert.alert("Activate blocked", formatActivateError(e));
+              Alert.alert("Activate failed", formatAcceptError(e));
             } finally {
               setActivating(false);
             }
@@ -609,16 +589,15 @@ export default function PreviewSign({ route, navigation }: any) {
     );
   };
 
-  // Borrower: accepts and activates after signing
+  // Borrower: accepts and activates via the secure RPC.
+  // The RPC records legal consent, writes the acceptance audit, and activates
+  // the IOU atomically. Any failure rolls the entire operation back.
   const onAcceptAsReceiver = async () => {
     if (!iou || !iouId) return;
     if (isActivated) { Alert.alert("Already active", "This IOU has already been activated."); return; }
-    if (!canAccept) return; // button is disabled; should not be reachable
+    if (!canAccept) return; // button is disabled; gate already checked
 
     // ACH readiness gate — must check both parties.
-    // achBlocker = 'self' means the current user (borrower here) must finish bank setup.
-    // achBlocker = 'counterparty' means the lender must finish — borrower should NOT be
-    // routed to their own LinkBank in this case.
     if (achBlocker === "self") {
       Alert.alert(
         "Bank setup required",
@@ -640,7 +619,7 @@ export default function PreviewSign({ route, navigation }: any) {
 
     Alert.alert(
       "Accept & Activate IOU?",
-      "This will activate the IOU and lock in the payment schedule. You agree to the terms as signed.",
+      "This will activate the IOU and lock in the payment schedule. Your legal acceptance will be recorded.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -648,27 +627,26 @@ export default function PreviewSign({ route, navigation }: any) {
           onPress: async () => {
             try {
               setActivating(true);
-              try {
-                await supabase.from("iou_acceptance_audit").insert({
-                  iou_id: iouId,
-                  user_id: meId,
-                  typed_signature: normalizedSignatureName,
-                  terms_version: TERMS_VERSION,
-                  privacy_version: PRIVACY_VERSION,
-                  platform_fee_bps: 70,
-                  accepted_at: new Date().toISOString(),
-                  repayment_total_cents: totalScheduled,
-                  platform_fee_cents: feeCents,
-                  total_borrower_cost_cents: totalScheduled + feeCents,
-                  metadata: null,
-                });
-              } catch {
-                // audit save failed — proceed with activation
-              }
-              const { error } = await supabase.rpc("accept_iou_request", {
+              const { data, error } = await supabase.rpc("accept_iou_with_legal", {
                 p_iou_id: iouId,
+                p_typed_signature: normalizedSignatureName,
+                p_terms_version: TERMS_VERSION,
+                p_privacy_version: PRIVACY_VERSION,
+                p_ack_contract: agreedToContract,
+                p_ack_electronic: ackElectronic,
+                p_ack_fee: ackFee,
+                p_ack_not_lender: ackNotLender,
+                p_platform: Platform.OS,
+                p_app_version: null,
+                p_device_metadata: null,
+                p_metadata: null,
               });
               if (error) throw error;
+              const rows = Array.isArray(data) ? data : data ? [data] : [];
+              const result = rows[0];
+              if (!result || result.status !== "open") {
+                throw new Error("Activation did not succeed. Please try again.");
+              }
               Alert.alert("IOU activated", "Your payment schedule is now active.", [
                 {
                   text: "OK",
@@ -680,7 +658,7 @@ export default function PreviewSign({ route, navigation }: any) {
                 },
               ]);
             } catch (e: any) {
-              Alert.alert("Accept failed", formatActivateError(e));
+              Alert.alert("Accept failed", formatAcceptError(e));
             } finally {
               setActivating(false);
             }
@@ -1116,8 +1094,8 @@ export default function PreviewSign({ route, navigation }: any) {
           </>
         )}
 
-        {/* ── Required acknowledgments (borrower only) ── */}
-        {isBorrowerView && !isActivated && (
+        {/* ── Required acknowledgments — both lender and borrower must complete ── */}
+        {(isBorrowerView || isLenderView) && !isActivated && (
           <View style={s.card}>
             <Text style={s.sectionTitle}>Required acknowledgments</Text>
 
@@ -1379,15 +1357,26 @@ export default function PreviewSign({ route, navigation }: any) {
                 <Text style={s.btnOutlineTxt}>Edit schedule</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.btn, s.btnGrow, isLocked ? s.btnDisabled : s.btnPrimary]}
+                style={[s.btn, s.btnGrow, (!canActivateLender || isLocked) ? s.btnDisabled : s.btnPrimary]}
                 onPress={onActivate}
-                disabled={activating || isLocked}
+                disabled={activating || !canActivateLender || isLocked}
               >
                 <Text style={s.btnTxt}>
                   {activating ? "Activating…" : isPaid ? "Already paid" : "Activate IOU"}
                 </Text>
               </TouchableOpacity>
             </View>
+            {!isLocked && !canActivateLender && (
+              <Text style={s.acceptBlockReason}>
+                {schedulePendingApproval
+                  ? "Schedule is pending borrower approval. Wait for borrower to confirm before activating."
+                  : !scheduleReady
+                    ? "A payment schedule is required before activating."
+                    : !allAcknowledged
+                      ? "Complete all required acknowledgments before activating."
+                      : "Complete your signature before activating."}
+              </Text>
+            )}
           </>
         )}
 
@@ -1438,10 +1427,13 @@ export default function PreviewSign({ route, navigation }: any) {
               <Text style={s.modalCloseTxt}>Close</Text>
             </TouchableOpacity>
           </View>
+          <View style={s.modalProgressBar}>
+            <View style={[s.modalProgressFill, { width: `${docScrollPercent}%` as any }]} />
+          </View>
           <Text style={s.modalScrollHint}>
             {docScrolledToBottom
-              ? "Please review the full document before continuing."
-              : "Please review the full document before continuing."}
+              ? "You have read this document. Tap the button below to confirm."
+              : `Scroll to the bottom to confirm reading · ${docScrollPercent}%`}
           </Text>
           <ScrollView
             style={s.modalScroll}
@@ -1943,6 +1935,14 @@ const s = StyleSheet.create({
     color: BLUE,
     fontWeight: "700",
     fontSize: 15,
+  },
+  modalProgressBar: {
+    height: 4,
+    backgroundColor: "#E5E7EB",
+  },
+  modalProgressFill: {
+    height: 4,
+    backgroundColor: GREEN,
   },
   modalScrollHint: {
     fontSize: 12,
